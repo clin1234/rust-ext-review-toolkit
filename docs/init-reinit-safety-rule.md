@@ -10,7 +10,7 @@ Python allows two calling patterns that are impossible in C++:
 
 2. **`tp_new` without `tp_init`**: `object.__new__(MyType)` creates an instance without calling `__init__`. If `tp_new` doesn't initialize pointer members to safe defaults (NULL/0), methods may dereference uninitialized garbage.
 
-These are real, underappreciated bug classes. Most C extension authors think of `__init__` as a constructor (one-shot), but Python's object model does not enforce this.
+These are real, underappreciated bug classes. Most Rust extension authors think of `__init__` as a constructor (one-shot), but Python's object model does not enforce this.
 
 ## Rule 1: `init_not_reinit_safe`
 
@@ -203,9 +203,9 @@ For cpython-review-toolkit, the same checks apply but with some differences:
 
 ## Implementation reference
 
-See the cext-review-toolkit implementation:
-- Scanner: `plugins/cext-review-toolkit/scripts/scan_type_slots.py` — functions `_check_init_reinit_safety` and `_check_new_without_init`
-- Agent prompt: `plugins/cext-review-toolkit/agents/type-slot-checker.md` — "tp_new / tp_init review" section
+See the rust-ext-review-toolkit implementation:
+- Scanner: `plugins/rust-ext-review-toolkit/scripts/scan_type_slots.py` — functions `_check_init_reinit_safety` and `_check_new_without_init`
+- Agent prompt: `plugins/rust-ext-review-toolkit/agents/type-slot-checker.md` — "tp_new / tp_init review" section
 - Tests: `tests/test_scan_type_slots.py` — `TestInitReinitSafety` and `TestNewWithoutInit` classes
 
-The cext-review-toolkit implementation uses tree-sitter for parsing and regex for pattern matching within function bodies. The cpython-review-toolkit should follow the same approach, adapted for its own scanner infrastructure.
+The rust-ext-review-toolkit implementation uses tree-sitter for parsing and regex for pattern matching within function bodies. The cpython-review-toolkit should follow the same approach, adapted for its own scanner infrastructure.

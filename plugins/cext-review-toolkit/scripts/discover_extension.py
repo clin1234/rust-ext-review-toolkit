@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect C extension source files in diverse project layouts.
+"""Detect Rust extension source files in diverse project layouts.
 
 Tries detection methods in order (first match wins):
 1. setup.py with ext_modules
@@ -423,7 +423,7 @@ def _detect_code_generation(root: Path, c_files: list[str]) -> str:
 
 
 def discover(target: str) -> dict:
-    """Discover C extension projects at the given path."""
+    """Discover Rust extension projects at the given path."""
     target_path = Path(target).resolve()
     if target_path.is_file():
         root = target_path.parent

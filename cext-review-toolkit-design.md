@@ -1,11 +1,11 @@
-# cext-review-toolkit — Design Document
+# rust-ext-review-toolkit — Design Document
 
 ## 1. Project Identity
 
-**Name:** cext-review-toolkit
-**Purpose:** A Claude Code plugin for reviewing CPython C extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the Python/C API rather than *implementing* it.
+**Name:** rust-ext-review-toolkit
+**Purpose:** A Claude Code plugin for reviewing CPython Rust extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the Python/C API rather than *implementing* it.
 
-**Tagline:** *Find the bugs in your C extension before your users do.*
+**Tagline:** *Find the bugs in your Rust extension before your users do.*
 
 ### 1.1 Relationship to Sibling Projects
 
@@ -13,14 +13,14 @@
 |---------|--------|---------|-------------|
 | code-review-toolkit | Python source | `ast` module | Logic errors, dead code, test gaps |
 | cpython-review-toolkit | CPython runtime C code | Regex (PEP 7) | Refcount leaks, GIL, NULL safety |
-| **cext-review-toolkit** | **C extensions** | **Tree-sitter** | **API misuse, borrowed ref lifetime, module state, type slots, ABI compliance** |
+| **rust-ext-review-toolkit** | **Rust extensions** | **Tree-sitter** | **API misuse, borrowed ref lifetime, module state, type slots, ABI compliance** |
 
-The key architectural distinction: cpython-review-toolkit uses regex-based scanning because PEP 7 code is extremely regular. C extension code is not — it has wildly varying styles, heavy macro usage, and unconventional formatting. Tree-sitter absorbs that variance because it parses the actual C grammar, giving agents structured syntax trees instead of fragile regex matches.
+The key architectural distinction: cpython-review-toolkit uses regex-based scanning because PEP 7 code is extremely regular. Rust extension code is not — it has wildly varying styles, heavy macro usage, and unconventional formatting. Tree-sitter absorbs that variance because it parses the actual C grammar, giving agents structured syntax trees instead of fragile regex matches.
 
 ### 1.2 Audience
 
-- C extension authors (library maintainers, scientific computing developers)
-- Contributors reviewing C extensions in third-party projects
+- Rust extension authors (library maintainers, scientific computing developers)
+- Contributors reviewing Rust extensions in third-party projects
 - Teams migrating extensions to newer Python versions or the stable ABI
 - Developers preparing extensions for free-threaded Python (PEP 703)
 
@@ -63,7 +63,7 @@ get_statements_between(func, start_node, end_node) → list[StatementNode]
 variable_assignments(func, var_name) → list[AssignmentNode]
 ```
 
-**Fallback:** If Tree-sitter is not installed, scripts print a clear error: `"cext-review-toolkit requires tree-sitter and tree-sitter-c: pip install tree-sitter tree-sitter-c"` and exit. No silent degradation to regex — the whole point of this project is better parsing.
+**Fallback:** If Tree-sitter is not installed, scripts print a clear error: `"rust-ext-review-toolkit requires tree-sitter and tree-sitter-c: pip install tree-sitter tree-sitter-c"` and exit. No silent degradation to regex — the whole point of this project is better parsing.
 
 ### 2.2 Shared Data
 
@@ -94,7 +94,7 @@ Agent prompts note whether external tool results are available:
 
 ### 2.4 Project Discovery
 
-Unlike cpython-review-toolkit (which looks for `Include/Python.h` + `Objects/object.c`), this toolkit must detect C extensions in diverse project layouts.
+Unlike cpython-review-toolkit (which looks for `Include/Python.h` + `Objects/object.c`), this toolkit must detect Rust extensions in diverse project layouts.
 
 **Detection strategy (first match wins):**
 
@@ -105,7 +105,7 @@ Unlike cpython-review-toolkit (which looks for `Include/Python.h` + `Objects/obj
 5. Manual scope: user points to a directory or file
 
 The discovery script produces:
-- List of C extension source files
+- List of Rust extension source files
 - Module name(s) (from init function names or build config)
 - Python version targets (from `python_requires`, `Py_LIMITED_API` defines, version guards)
 - Whether the extension claims limited API / stable ABI compliance
@@ -352,7 +352,7 @@ except ImportError:
 ### 5.1 explore
 
 ```
-/cext-review-toolkit:explore [scope] [aspects] [options]
+/rust-ext-review-toolkit:explore [scope] [aspects] [options]
 ```
 
 **Aspects:** `refcounts`, `errors`, `null-safety`, `gil`, `module-state`, `type-slots`, `abi`, `compat`, `complexity`, `history`, `all`
@@ -376,7 +376,7 @@ Note: No include-graph-mapper phase. Extensions don't have the layered header st
 ### 5.2 health
 
 ```
-/cext-review-toolkit:health [scope]
+/rust-ext-review-toolkit:health [scope]
 ```
 
 Quick dashboard — all agents in summary mode.
@@ -396,7 +396,7 @@ Quick dashboard — all agents in summary mode.
 ### 5.3 hotspots
 
 ```
-/cext-review-toolkit:hotspots [scope]
+/rust-ext-review-toolkit:hotspots [scope]
 ```
 
 Runs refcount-auditor, error-path-analyzer, and c-complexity-analyzer. Answers "where should I focus?"
@@ -404,7 +404,7 @@ Runs refcount-auditor, error-path-analyzer, and c-complexity-analyzer. Answers "
 ### 5.4 migrate
 
 ```
-/cext-review-toolkit:migrate [scope]
+/rust-ext-review-toolkit:migrate [scope]
 ```
 
 **New command — not in cpython-review-toolkit.** Runs module-state-checker, stable-abi-checker, and version-compat-scanner. Answers "what do I need to change to modernize this extension?" Produces a migration checklist:
@@ -492,7 +492,7 @@ Same as cpython-review-toolkit, with extension-specific calibration:
 
 - [ ] `analyze_history.py` — adapted with Tree-sitter C function detection
 - [ ] git-history-analyzer agent prompt (simplified)
-- [ ] End-to-end test on a real C extension (e.g., coverage.py CTracer)
+- [ ] End-to-end test on a real Rust extension (e.g., coverage.py CTracer)
 - [ ] External tool integration (clang-tidy/cppcheck opportunistic)
 - [ ] README, plugin README, marketplace listing
 - [ ] Final test pass
@@ -501,7 +501,7 @@ Same as cpython-review-toolkit, with extension-specific calibration:
 ## 8. Plugin Structure
 
 ```
-cext-review-toolkit/
+rust-ext-review-toolkit/
 ├── .claude-plugin/
 │   ├── plugin.json
 │   └── marketplace.json
@@ -509,7 +509,7 @@ cext-review-toolkit/
 ├── LICENSE
 ├── CHANGELOG.md
 ├── plugins/
-│   └── cext-review-toolkit/
+│   └── rust-ext-review-toolkit/
 │       ├── .claude-plugin/
 │       │   └── plugin.json
 │       ├── README.md
@@ -569,7 +569,7 @@ Adapted from cpython-review-toolkit's `TempProject`, with extension-aware fixtur
 
 ```python
 class TempExtension:
-    """Create a temporary C extension project for testing."""
+    """Create a temporary Rust extension project for testing."""
 
     def __init__(self, files: dict[str, str], *, setup_py: str | None = None):
         # Creates temp dir with given C files
@@ -587,7 +587,7 @@ Each script must have tests covering:
 
 ### 9.3 Real-world Validation
 
-Before release, run on at least 3 real C extensions:
+Before release, run on at least 3 real Rust extensions:
 - coverage.py CTracer (already validated with cpython-review-toolkit)
 - A scientific computing extension (e.g., a small NumPy-adjacent project)
 - A database wrapper (e.g., a SQLite or Redis extension)
@@ -595,7 +595,7 @@ Before release, run on at least 3 real C extensions:
 
 ## 10. Differences from cpython-review-toolkit (Summary)
 
-| Dimension | cpython-review-toolkit | cext-review-toolkit |
+| Dimension | cpython-review-toolkit | rust-ext-review-toolkit |
 |-----------|----------------------|-------------------|
 | Parsing | Regex (PEP 7 regularity) | Tree-sitter (style-agnostic) |
 | Dependencies | stdlib only | tree-sitter, tree-sitter-c |

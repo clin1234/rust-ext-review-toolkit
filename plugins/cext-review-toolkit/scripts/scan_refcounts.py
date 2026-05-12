@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find reference counting errors in C extension code.
+"""Find reference counting errors in Rust extension code.
 
 Detects leaked refs, borrowed-ref-across-callback, stolen-ref misuse,
 and missing cleanup on error paths. This analyzes code that *calls* the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan C extension code for version compatibility issues.
+"""Scan Rust extension code for version compatibility issues.
 
 Checks API usage against known deprecated and removed APIs,
 detects missing version guards, and finds dead compatibility code.

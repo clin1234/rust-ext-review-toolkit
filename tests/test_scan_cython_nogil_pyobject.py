@@ -1,6 +1,6 @@
 """Tests for scan_cython_nogil_pyobject.py — Q5 nogil Python touch.
 
-Requires tree-sitter-cython (devdanzin fork).
+Requires tree-sitter-cython (clin1234 fork).
 """
 
 import unittest

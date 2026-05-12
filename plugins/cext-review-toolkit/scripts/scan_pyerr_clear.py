@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit PyErr_Clear() calls for exception swallowing in C extension code.
+"""Audit PyErr_Clear() calls for exception swallowing in Rust extension code.
 
 Finds PyErr_Clear() calls that are not preceded by PyErr_ExceptionMatches()
 or similar type-checking calls. Unguarded clears silently swallow MemoryError,

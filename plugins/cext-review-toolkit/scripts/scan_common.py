@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared utilities for cext-review-toolkit analysis scripts.
+"""Shared utilities for rust-ext-review-toolkit analysis scripts.
 
 Provides common infrastructure: project root detection, C file discovery,
 API table loading, and AST helpers used across multiple scanner scripts.

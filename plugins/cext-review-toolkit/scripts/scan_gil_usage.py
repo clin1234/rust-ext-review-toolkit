@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find GIL discipline issues in C extension code.
+"""Find GIL discipline issues in Rust extension code.
 
 Detects mismatched allow-threads macros, Python API calls without GIL,
 blocking calls with GIL held, and free-threading concerns.

@@ -1,12 +1,12 @@
-# CLAUDE.md — cext-review-toolkit development guide
+# CLAUDE.md — rust-ext-review-toolkit development guide
 
 ## Project overview
-cext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython C extensions. It finds API misuse, memory safety bugs, compatibility issues, and correctness problems in code that *consumes* the Python/C API.
+rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions. It finds API misuse, memory safety bugs, compatibility issues, and correctness problems in code that *consumes* the Python/C API.
 
 Part of a family of review toolkits:
-- [code-review-toolkit](https://github.com/devdanzin/code-review-toolkit) — Python source code
-- [cpython-review-toolkit](https://github.com/devdanzin/cpython-review-toolkit) — CPython runtime C code
-- **cext-review-toolkit** — C extensions (this project)
+- [code-review-toolkit](https://github.com/clin1234/code-review-toolkit) — Python source code
+- [cpython-review-toolkit](https://github.com/clin1234/cpython-review-toolkit) — CPython runtime C code
+- **rust-ext-review-toolkit** — Rust extensions (this project)
 
 Key architectural difference: uses Tree-sitter for C parsing (not regex), enabling analysis that regex cannot do (borrowed-ref lifetime tracking, type slot cross-referencing, accurate scope analysis).
 
@@ -20,7 +20,7 @@ Key architectural difference: uses Tree-sitter for C parsing (not regex), enabli
 ## Dev commands
 ```bash
 # Activate the project venv (Python 3.14 from ~/projects/3.14/python)
-source ~/venvs/cext-review-toolkit/bin/activate
+source ~/venvs/rust-ext-review-toolkit/bin/activate
 
 # Run all tests
 python -m unittest discover tests -v
@@ -29,8 +29,8 @@ python -m unittest discover tests -v
 python -m unittest tests.test_scan_refcounts -v
 
 # Run a single script standalone (all output JSON to stdout)
-python plugins/cext-review-toolkit/scripts/scan_refcounts.py /path/to/extension.c
-python plugins/cext-review-toolkit/scripts/discover_extension.py /path/to/project
+python plugins/rust-ext-review-toolkit/scripts/scan_refcounts.py /path/to/extension.c
+python plugins/rust-ext-review-toolkit/scripts/discover_extension.py /path/to/project
 
 # Lint and format (install ruff/mypy into venv if not present)
 ruff format <changed-files>
@@ -51,14 +51,14 @@ mypy
 This is a Claude Code plugin, not a pip-installable package.
 
 ```
-cext-review-toolkit/
+rust-ext-review-toolkit/
 ├── CLAUDE.md                          # This file
 ├── README.md                          # User-facing documentation
 ├── CHANGELOG.md                       # Keep a Changelog format
 ├── LICENSE                            # MIT
-├── cext-review-toolkit-design.md      # Full design document (authoritative reference)
+├── rust-ext-review-toolkit-design.md      # Full design document (authoritative reference)
 ├── .claude/skills/task-workflow/      # Claude Code skill for dev workflow
-├── plugins/cext-review-toolkit/       # The actual plugin
+├── plugins/rust-ext-review-toolkit/       # The actual plugin
 │   ├── .claude-plugin/plugin.json     # Plugin metadata
 │   ├── agents/                        # 10 agent prompt definitions (markdown)
 │   ├── commands/                      # 4 command definitions (markdown)
@@ -71,7 +71,7 @@ cext-review-toolkit/
 
 ### Scripts (the core analysis code)
 
-All scripts live in `plugins/cext-review-toolkit/scripts/`. Every analysis script follows the same pattern: parse C/C++ files with Tree-sitter, find candidate issues, output JSON to stdout.
+All scripts live in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis script follows the same pattern: parse C/C++ files with Tree-sitter, find candidate issues, output JSON to stdout.
 
 | Script | Lines | Purpose |
 |--------|-------|---------|
@@ -92,7 +92,7 @@ All scripts live in `plugins/cext-review-toolkit/scripts/`. Every analysis scrip
 
 **Script calling convention:** Every analysis script exposes `analyze(target: str, *, max_files: int = 0) -> dict` and a `main()` that outputs JSON to stdout. Exception: `analyze_history.py` takes `argv` to match code-review-toolkit conventions.
 
-**Data files** in `plugins/cext-review-toolkit/data/`:
+**Data files** in `plugins/rust-ext-review-toolkit/data/`:
 - `api_tables.json` — NEW_REF_APIS, BORROWED_REF_APIS, STEAL_REF_APIS
 - `deprecated_apis.json` — deprecated APIs with version and replacement
 - `stable_abi.json` — functions in the stable ABI
@@ -100,7 +100,7 @@ All scripts live in `plugins/cext-review-toolkit/scripts/`. Every analysis scrip
 
 ### Agents (prompt definitions for Claude Code)
 
-10 markdown files in `plugins/cext-review-toolkit/agents/`. Each has YAML frontmatter (name, description, model, color) and a structured prompt telling Claude Code how to use the corresponding script and interpret its output.
+10 markdown files in `plugins/rust-ext-review-toolkit/agents/`. Each has YAML frontmatter (name, description, model, color) and a structured prompt telling Claude Code how to use the corresponding script and interpret its output.
 
 Agents don't contain analysis logic — they instruct Claude Code to run a script, read the JSON output, then perform deep qualitative review of each candidate finding. The scripts find candidates (with ~20-40% false positive rate); the agents confirm or dismiss them.
 
@@ -119,7 +119,7 @@ Agents don't contain analysis logic — they instruct Claude Code to run a scrip
 
 ### Commands (orchestration)
 
-4 markdown files in `plugins/cext-review-toolkit/commands/`:
+4 markdown files in `plugins/rust-ext-review-toolkit/commands/`:
 - `explore.md` — primary command, runs agents in phased groups
 - `health.md` — quick scored dashboard, all agents in summary mode
 - `hotspots.md` — refcount + errors + complexity, find worst functions
@@ -141,22 +141,22 @@ Important calibration: module state issues (single-phase init, global state) are
 - 4 C code fixtures: MINIMAL_EXTENSION, MULTI_PHASE_EXTENSION, EXTENSION_WITH_TYPE, EXTENSION_WITH_BUGS
 - 1 setup.py template: SETUP_PY_TEMPLATE
 - Tests create temporary directories with C files, run scripts on them, and check JSON output
-- `import_script(name)` loads scripts from `plugins/cext-review-toolkit/scripts/` via importlib
+- `import_script(name)` loads scripts from `plugins/rust-ext-review-toolkit/scripts/` via importlib
 
 ## Adding a new analysis script
 
-1. Create `plugins/cext-review-toolkit/scripts/scan_newcheck.py`
+1. Create `plugins/rust-ext-review-toolkit/scripts/scan_newcheck.py`
 2. Import from `tree_sitter_utils` and `scan_common`
 3. Implement `analyze(target: str, *, max_files: int = 0) -> dict` following the common JSON envelope
 4. Add `main()` using `parse_common_args()` from `scan_common`
 5. Create `tests/test_scan_newcheck.py` with at least: true positive, true negative, edge case
-6. Create `plugins/cext-review-toolkit/agents/newcheck-agent.md` with YAML frontmatter and prompt
+6. Create `plugins/rust-ext-review-toolkit/agents/newcheck-agent.md` with YAML frontmatter and prompt
 7. Add the agent to the appropriate phase group in `commands/explore.md`
 8. Update CHANGELOG.md
 
 ## Adding a new agent (qualitative, no script)
 
-1. Create `plugins/cext-review-toolkit/agents/new-agent.md` with YAML frontmatter
+1. Create `plugins/rust-ext-review-toolkit/agents/new-agent.md` with YAML frontmatter
 2. The agent prompt should instruct Claude Code to use Grep/Read tools directly
 3. Reference data files in `data/` for API lists and version information
 4. Add to the appropriate phase group in `commands/explore.md`
@@ -173,7 +173,7 @@ Important calibration: module state issues (single-phase init, global state) are
 
 ## Design document
 
-`cext-review-toolkit-design.md` at the repo root is the authoritative design reference. It covers: project identity, architecture decisions (why Tree-sitter, why separate from cpython-review-toolkit), all agent specifications, script output schemas, command definitions, classification system, and implementation plan.
+`rust-ext-review-toolkit-design.md` at the repo root is the authoritative design reference. It covers: project identity, architecture decisions (why Tree-sitter, why separate from cpython-review-toolkit), all agent specifications, script output schemas, command definitions, classification system, and implementation plan.
 
 ## Workflow
 - Use `/task-workflow <description>` for the full issue → branch → code → test → commit → PR → merge cycle

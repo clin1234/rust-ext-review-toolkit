@@ -1,12 +1,12 @@
-# C Extension Review Toolkit
+# Rust extension Review Toolkit
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython C extensions -- finding API misuse, memory safety bugs, compatibility issues, and correctness problems specific to code that *consumes* the Python/C API.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions -- finding API misuse, memory safety bugs, compatibility issues, and correctness problems specific to code that *consumes* the Python/C API.
 
-Built for the specific concerns of C extension authors -- reference counting from the caller's perspective, borrowed reference lifetimes, module state management, type slot correctness, stable ABI compliance, and version compatibility -- not general-purpose C analysis.
+Built for the specific concerns of Rust extension authors -- reference counting from the caller's perspective, borrowed reference lifetimes, module state management, type slot correctness, stable ABI compliance, and version compatibility -- not general-purpose C analysis.
 
 ## Why a Separate Tool?
 
-| Concern | CPython internals (cpython-review-toolkit) | C extensions (this toolkit) |
+| Concern | CPython internals (cpython-review-toolkit) | Rust extensions (this toolkit) |
 |---------|-------------------------------------------|----------------------------|
 | **Perspective** | Code that *implements* the C API | Code that *calls* the C API |
 | **Parsing** | Regex (PEP 7 code is regular) | Tree-sitter (extension code varies wildly) |
@@ -21,21 +21,21 @@ Built for the specific concerns of C extension authors -- reference counting fro
 ### Marketplace install (recommended)
 
 ```bash
-claude plugin marketplace add devdanzin/cext-review-toolkit
-claude plugin install cext-review-toolkit@cext-review-toolkit
+claude plugin marketplace add clin1234/rust-ext-review-toolkit
+claude plugin install rust-ext-review-toolkit@rust-ext-review-toolkit
 ```
 
 ### Direct install from GitHub
 
 ```bash
-claude plugin install cext-review-toolkit --source github:devdanzin/cext-review-toolkit --path plugins/cext-review-toolkit
+claude plugin install rust-ext-review-toolkit --source github:clin1234/rust-ext-review-toolkit --path plugins/rust-ext-review-toolkit
 ```
 
 ### Without installing (try it first)
 
 ```bash
-git clone https://github.com/devdanzin/cext-review-toolkit.git
-claude --plugin-dir cext-review-toolkit/plugins/cext-review-toolkit
+git clone https://github.com/clin1234/rust-ext-review-toolkit.git
+claude --plugin-dir rust-ext-review-toolkit/plugins/rust-ext-review-toolkit
 ```
 
 ### Prerequisites
@@ -46,13 +46,13 @@ claude --plugin-dir cext-review-toolkit/plugins/cext-review-toolkit
 
 ## Quick Start
 
-Navigate to a C extension project, then:
+Navigate to a Rust extension project, then:
 
 ```bash
-/cext-review-toolkit:health       # Quick health dashboard
-/cext-review-toolkit:hotspots     # Refcount leaks + error bugs + complexity
-/cext-review-toolkit:explore      # Full exploration (all 10 agents)
-/cext-review-toolkit:migrate      # Modernization checklist
+/rust-ext-review-toolkit:health       # Quick health dashboard
+/rust-ext-review-toolkit:hotspots     # Refcount leaks + error bugs + complexity
+/rust-ext-review-toolkit:explore      # Full exploration (all 10 agents)
+/rust-ext-review-toolkit:migrate      # Modernization checklist
 ```
 
 Start with `health` for a quick overview, then `hotspots` to find the highest-impact bugs.
@@ -112,7 +112,7 @@ Unlike cpython-review-toolkit (regex-based), this toolkit uses Tree-sitter for C
 
 ### Extension Discovery
 
-The toolkit auto-detects C extensions in diverse project layouts:
+The toolkit auto-detects Rust extensions in diverse project layouts:
 - `setup.py` with `ext_modules`
 - `pyproject.toml` with setuptools, meson-python, or scikit-build
 - `meson.build` with `py.extension_module()`
@@ -143,29 +143,29 @@ These are never required -- the Tree-sitter-based analysis is the baseline.
 ### Reviewing an unfamiliar extension
 
 ```
-1. /cext-review-toolkit:health              -> Quick overview
-2. /cext-review-toolkit:hotspots            -> Where are the bugs?
-3. /cext-review-toolkit:explore . refcounts errors deep  -> Deep dive on safety
+1. /rust-ext-review-toolkit:health              -> Quick overview
+2. /rust-ext-review-toolkit:hotspots            -> Where are the bugs?
+3. /rust-ext-review-toolkit:explore . refcounts errors deep  -> Deep dive on safety
 ```
 
 ### Preparing for a Python version upgrade
 
 ```
-1. /cext-review-toolkit:explore . compat abi  -> What needs to change?
-2. /cext-review-toolkit:migrate               -> Full migration checklist
+1. /rust-ext-review-toolkit:explore . compat abi  -> What needs to change?
+2. /rust-ext-review-toolkit:migrate               -> Full migration checklist
 ```
 
 ### Modernizing an extension
 
 ```
-1. /cext-review-toolkit:migrate               -> What to modernize
-2. /cext-review-toolkit:explore . module-state type-slots deep  -> Detailed guidance
+1. /rust-ext-review-toolkit:migrate               -> What to modernize
+2. /rust-ext-review-toolkit:explore . module-state type-slots deep  -> Detailed guidance
 ```
 
 ### Pre-release safety audit
 
 ```
-1. /cext-review-toolkit:explore . all deep    -> Full analysis
+1. /rust-ext-review-toolkit:explore . all deep    -> Full analysis
 2. Focus on FIX findings
 3. Re-run on specific files after fixes
 ```
@@ -193,11 +193,11 @@ These are never required -- the Tree-sitter-based analysis is the baseline.
 
 ## Comparison with Sibling Projects
 
-| Dimension | code-review-toolkit | cpython-review-toolkit | cext-review-toolkit |
+| Dimension | code-review-toolkit | cpython-review-toolkit | rust-ext-review-toolkit |
 |-----------|--------------------|-----------------------|--------------------|
 | **Language** | Python | C (CPython source) | C (extensions) |
 | **Parsing** | Python `ast` | Regex | Tree-sitter |
-| **Target** | Python projects | CPython runtime | C extensions |
+| **Target** | Python projects | CPython runtime | Rust extensions |
 | **Agents** | 14 | 10 | 10 |
 | **Scripts** | 8 | 7 | 10 |
 | **Unique value** | Test coverage, architecture | GIL, PEP 7, include graph | Module state, type slots, ABI, migrate |

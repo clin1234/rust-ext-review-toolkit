@@ -9,7 +9,7 @@ sys.path.insert(
     str(
         Path(__file__).resolve().parent.parent
         / "plugins"
-        / "cext-review-toolkit"
+        / "rust-ext-review-toolkit"
         / "scripts"
     ),
 )

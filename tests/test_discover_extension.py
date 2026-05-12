@@ -1,4 +1,4 @@
-"""Tests for discover_extension.py — C extension project discovery."""
+"""Tests for discover_extension.py — Rust extension project discovery."""
 
 import unittest
 from helpers import import_script, TempExtension, MINIMAL_EXTENSION, SETUP_PY_TEMPLATE
@@ -7,7 +7,7 @@ discover = import_script("discover_extension")
 
 
 class TestDiscoverExtension(unittest.TestCase):
-    """Test C extension project discovery."""
+    """Test Rust extension project discovery."""
 
     def test_detect_setup_py(self):
         """Extension detected from setup.py."""
@@ -51,7 +51,7 @@ class TestDiscoverExtension(unittest.TestCase):
             self.assertEqual(result["limited_api_version"], "0x030A0000")
 
     def test_no_extension_found(self):
-        """Directory with no C extension returns empty list."""
+        """Directory with no Rust extension returns empty list."""
         with TempExtension({"readme.txt": "just a text file"}) as root:
             result = discover.discover(str(root))
             self.assertEqual(len(result["extensions"]), 0)

@@ -2,7 +2,7 @@
 """Tree-sitter parsing utilities for C/C++ extension analysis.
 
 This is the core parsing module used by all analysis scripts in
-cext-review-toolkit. It provides structured access to C/C++ source code
+rust-ext-review-toolkit. It provides structured access to C/C++ source code
 via Tree-sitter, replacing fragile regex-based parsing.
 
 Requires: pip install tree-sitter tree-sitter-c

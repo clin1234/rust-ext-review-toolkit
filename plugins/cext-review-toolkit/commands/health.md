@@ -1,28 +1,28 @@
 ---
-description: "Quick health dashboard scoring a C extension across all dimensions. Use when the user asks for a quick overview, health check, status, score, or summary of a C extension's quality."
+description: "Quick health dashboard scoring a Rust extension across all dimensions. Use when the user asks for a quick overview, health check, status, score, or summary of a Rust extension's quality."
 argument-hint: "[scope]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
 
-# C Extension Health Dashboard
+# Rust extension Health Dashboard
 
 Run all agents in summary mode to produce a quick health dashboard. Each agent reports only its top-level findings -- no deep analysis.
 
 **Scope:** "$ARGUMENTS" (default: entire project)
 
-**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/cext-review-toolkit/` directory. Resolve it relative to this file's location.
+**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/rust-ext-review-toolkit/` directory. Resolve it relative to this file's location.
 
 ## Workflow
 
 1. Run `python <plugin_root>/scripts/discover_extension.py [scope]` to detect the extension layout
-2. If no C extension found, inform the user and stop
+2. If no Rust extension found, inform the user and stop
 3. Check the `code_generation` field. If `"cython"` or `"mypyc"`, apply the same agent-filtering strategy documented in the explore command (skip refcount-auditor, error-path-analyzer, null-safety-scanner, module-state-checker, stable-abi-checker, version-compat-scanner).
 4. Run applicable analysis agents with context, requesting summary-tier output only. Run at most 2 concurrently to limit resource usage.
 4. Deduplicate before scoring: when the same issue is flagged by multiple agents, count it once.
 5. Synthesize into a health dashboard:
 
 ```markdown
-# C Extension Health Dashboard
+# Rust extension Health Dashboard
 
 ## Extension: [name] ([N] C files, [N] lines)
 
@@ -54,7 +54,7 @@ Run all agents in summary mode to produce a quick health dashboard. Each agent r
 3. [Next]
 
 For detailed analysis, run:
-  /cext-review-toolkit:explore . [aspect] deep
+  /rust-ext-review-toolkit:explore . [aspect] deep
 ```
 
 ## Scoring Rubric
@@ -78,6 +78,6 @@ G = 8-10 | Y = 5-7 | R = 1-4
 ## Usage
 
 ```
-/cext-review-toolkit:health              # Full project health
-/cext-review-toolkit:health src/         # Specific directory
+/rust-ext-review-toolkit:health              # Full project health
+/rust-ext-review-toolkit:health src/         # Specific directory
 ```

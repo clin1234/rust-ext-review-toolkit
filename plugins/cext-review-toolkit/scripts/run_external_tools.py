@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run external static analysis tools (clang-tidy, cppcheck) on C/C++ code.
 
-Outputs JSON matching the standard cext-review-toolkit envelope format.
+Outputs JSON matching the standard rust-ext-review-toolkit envelope format.
 Both tools are optional -- gracefully skips unavailable ones.
 
 Usage:

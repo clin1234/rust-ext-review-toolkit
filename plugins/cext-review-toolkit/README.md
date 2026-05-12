@@ -1,11 +1,11 @@
-# cext-review-toolkit (plugin)
+# rust-ext-review-toolkit (plugin)
 
-C extension analysis plugin for Claude Code. See the [project README](../../README.md) for full documentation.
+Rust extension analysis plugin for Claude Code. See the [project README](../../README.md) for full documentation.
 
 ## Plugin Structure
 
 ```
-cext-review-toolkit/
+rust-ext-review-toolkit/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── agents/

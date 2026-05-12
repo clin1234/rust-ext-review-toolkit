@@ -23,7 +23,7 @@ What we verify:
   4. Both failure paths produce ZstdError, not a segfault.
 """
 import sys
-sys.path.insert(0, "/home/danzin/projects/cext-review-toolkit/docs")
+sys.path.insert(0, "/home/danzin/projects/rust-ext-review-toolkit/docs")
 import libfiu_helpers as fh
 
 fh.require_preloaded()

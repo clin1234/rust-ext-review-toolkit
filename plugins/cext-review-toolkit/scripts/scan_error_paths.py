@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find error handling bugs in C extension code.
+"""Find error handling bugs in Rust extension code.
 
 Detects missing NULL checks, return-without-exception, exception clobbering,
 and unchecked PyArg_Parse calls.

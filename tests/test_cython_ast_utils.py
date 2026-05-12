@@ -1,6 +1,6 @@
 """Tests for cython_ast_utils.py — Tree-sitter-cython parsing utilities.
 
-Requires tree-sitter-cython (devdanzin fork). If not installed, this test
+Requires tree-sitter-cython (clin1234 fork). If not installed, this test
 module fails to collect -- matching the project convention for tests that
 need a parser dependency (see test_tree_sitter_utils.py).
 """

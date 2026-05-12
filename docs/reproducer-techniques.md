@@ -1,6 +1,6 @@
-# C Extension Bug Reproducer Techniques
+# Rust extension Bug Reproducer Techniques
 
-A catalog of Python-level techniques for triggering bugs found by code review in C extensions. Each technique exploits a specific Python/C API contract violation from pure Python, without needing to modify the extension source.
+A catalog of Python-level techniques for triggering bugs found by code review in Rust extensions. Each technique exploits a specific Python/C API contract violation from pure Python, without needing to modify the extension source.
 
 ## Prerequisites
 
@@ -604,7 +604,7 @@ StatefulHashMeta._fail = True
 # and returns NULL as if the key were not found
 ```
 
-**How it works**: Python types get their `__hash__` from their metaclass. A stateful metaclass can control when hashing fails. This is the key insight: the type is used as a dict key in C extensions' type registries (e.g., bson's encoder/decoder maps, custom serializers). The hash works during registration but fails during lookup, making `PyDict_GetItem` silently drop the registered handler.
+**How it works**: Python types get their `__hash__` from their metaclass. A stateful metaclass can control when hashing fails. This is the key insight: the type is used as a dict key in Rust extensions' type registries (e.g., bson's encoder/decoder maps, custom serializers). The hash works during registration but fails during lookup, making `PyDict_GetItem` silently drop the registered handler.
 
 **Confirmed on**: pymongo/bson `_write_element_to_buffer` type registry lookup — `MemoryError` silently swallowed, `InvalidDocument` raised instead of `MemoryError`.
 
@@ -721,11 +721,11 @@ Pattern 2 is the most powerful for C++ extensions: the first successful read sta
 
 ## Technique 22: Callback that modifies caller's internal state
 
-**Triggers**: Double-free, use-after-free, refcount underflow, or data corruption when a C extension calls a user-provided Python callback that modifies the extension's own data structures (markers dicts, caches, internal containers) during the call.
+**Triggers**: Double-free, use-after-free, refcount underflow, or data corruption when a Rust extension calls a user-provided Python callback that modifies the extension's own data structures (markers dicts, caches, internal containers) during the call.
 
 **Bug class**: C code assumes its internal state is unchanged across a callback invocation. When the callback modifies that state (clears a dict, removes an item, replaces a reference), the C code's post-callback cleanup operates on stale or missing data.
 
-**How it works**: Many C extensions pass user-provided callbacks (default handlers, key functions, comparison functions, visitor functions) while holding references to internal data structures. If the callback has access to those data structures (directly or via the encoder/decoder object), it can mutate them mid-operation.
+**How it works**: Many Rust extensions pass user-provided callbacks (default handlers, key functions, comparison functions, visitor functions) while holding references to internal data structures. If the callback has access to those data structures (directly or via the encoder/decoder object), it can mutate them mid-operation.
 
 ```python
 import simplejson._speedups as sp
@@ -998,7 +998,7 @@ Different parse-failure paths through `PyArg_ParseTupleAndKeywords` can take dif
 
 ### When this technique is the right choice
 
-- Any C extension with many `PyArg_ParseTupleAndKeywords` call sites and a project convention of `PyErr_SetString(...); Py_RETURN_NONE;` in the failure branch. A handful of sites may be correct (using `return NULL`) while neighbors are buggy (using `Py_RETURN_NONE`). This technique catches the buggy ones fast.
+- Any Rust extension with many `PyArg_ParseTupleAndKeywords` call sites and a project convention of `PyErr_SetString(...); Py_RETURN_NONE;` in the failure branch. A handful of sites may be correct (using `return NULL`) while neighbors are buggy (using `Py_RETURN_NONE`). This technique catches the buggy ones fast.
 - Before shipping a new extension: run a loop that calls every METH_VARARGS|METH_KEYWORDS function with bad args and assert **zero** SystemError observations. Regression-catching CI tool.
 - In code-review, as a sanity check: if a reviewer spots one `PyErr_SetString; Py_RETURN_NONE`, grep the file for the pattern and run this technique on every hit.
 

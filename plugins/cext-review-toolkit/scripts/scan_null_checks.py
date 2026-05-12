@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find NULL safety issues in C extension code.
+"""Find NULL safety issues in Rust extension code.
 
 Detects unchecked allocations, dereference-before-check, and unchecked
 PyArg_Parse calls.

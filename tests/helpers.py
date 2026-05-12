@@ -1,4 +1,4 @@
-"""Test helpers for cext-review-toolkit tests."""
+"""Test helpers for rust-ext-review-toolkit tests."""
 
 import importlib.util
 import os
@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 def import_script(name: str):
-    """Import a script from plugins/cext-review-toolkit/scripts/ as a module."""
-    script_dir = Path(__file__).resolve().parent.parent / "plugins" / "cext-review-toolkit" / "scripts"
+    """Import a script from plugins/rust-ext-review-toolkit/scripts/ as a module."""
+    script_dir = Path(__file__).resolve().parent.parent / "plugins" / "rust-ext-review-toolkit" / "scripts"
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -17,7 +17,7 @@ def import_script(name: str):
 
 
 class TempExtension:
-    """Create a temporary C extension project for testing.
+    """Create a temporary Rust extension project for testing.
 
     Usage:
         with TempExtension({"src/myext.c": c_code}) as root:

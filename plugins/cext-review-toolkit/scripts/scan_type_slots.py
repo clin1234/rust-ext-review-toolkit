@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze type definitions for correctness in C extension code.
+"""Analyze type definitions for correctness in Rust extension code.
 
 Detects dealloc issues, traverse gaps, richcompare bugs, missing flags,
 and type spec problems.

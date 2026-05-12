@@ -1,16 +1,16 @@
 ---
-description: "Comprehensive C extension analysis using specialized agents. Use when the user asks to analyze, audit, or review a C extension, find bugs in C extension code, run all checks on an extension, or do a full extension review. Covers refcount safety, error handling, NULL safety, GIL discipline, module state, type slots, ABI compliance, version compatibility, PyErr_Clear auditing, resource lifecycle, and C/Python parity."
+description: "Comprehensive Rust extension analysis using specialized agents. Use when the user asks to analyze, audit, or review a Rust extension, find bugs in Rust extension code, run all checks on an extension, or do a full extension review. Covers refcount safety, error handling, NULL safety, GIL discipline, module state, type slots, ABI compliance, version compatibility, PyErr_Clear auditing, resource lifecycle, and C/Python parity."
 argument-hint: "[scope] [aspects] [options]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
 
-# Comprehensive C Extension Analysis
+# Comprehensive Rust extension Analysis
 
-Run a comprehensive analysis of a CPython C extension using multiple specialized agents, each focusing on a different aspect of extension correctness. Extension discovery runs first to understand the project layout.
+Run a comprehensive analysis of a CPython Rust extension using multiple specialized agents, each focusing on a different aspect of extension correctness. Extension discovery runs first to understand the project layout.
 
 **Arguments:** "$ARGUMENTS"
 
-**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/cext-review-toolkit/` directory. Resolve it relative to this file's location.
+**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/rust-ext-review-toolkit/` directory. Resolve it relative to this file's location.
 
 ## Argument Parsing
 
@@ -65,7 +65,7 @@ Limited API: no
 Code generation: hand_written
 ```
 
-If no C extension source files are found, inform the user and suggest checking the scope.
+If no Rust extension source files are found, inform the user and suggest checking the scope.
 
 ### Code Generation Strategy
 
@@ -181,7 +181,7 @@ After all agents complete, perform deduplication, conflict resolution, and produ
 #### Summary Template
 
 ```markdown
-# C Extension Analysis Report
+# Rust extension Analysis Report
 
 ## Extension: [name]
 ## Scope: [what was analyzed]
@@ -286,37 +286,37 @@ The above is the extension layout analysis. Use it to:
 
 **Full exploration:**
 ```
-/cext-review-toolkit:explore
+/rust-ext-review-toolkit:explore
 ```
 
 **Specific scope:**
 ```
-/cext-review-toolkit:explore src/
+/rust-ext-review-toolkit:explore src/
 ```
 
 **Safety-only analysis:**
 ```
-/cext-review-toolkit:explore . refcounts errors null-safety
+/rust-ext-review-toolkit:explore . refcounts errors null-safety
 ```
 
 **Extension correctness check:**
 ```
-/cext-review-toolkit:explore . module-state type-slots
+/rust-ext-review-toolkit:explore . module-state type-slots
 ```
 
 **Compatibility audit:**
 ```
-/cext-review-toolkit:explore . abi compat
+/rust-ext-review-toolkit:explore . abi compat
 ```
 
 **Quick summary:**
 ```
-/cext-review-toolkit:explore . all summary
+/rust-ext-review-toolkit:explore . all summary
 ```
 
 **Deep dive:**
 ```
-/cext-review-toolkit:explore . all deep
+/rust-ext-review-toolkit:explore . all deep
 ```
 
 ## Tips

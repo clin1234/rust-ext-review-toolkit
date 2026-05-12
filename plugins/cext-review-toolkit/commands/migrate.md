@@ -1,5 +1,5 @@
 ---
-description: "Extension modernization assessment covering multi-phase init migration, stable ABI adoption, version compatibility, and free-threading readiness. Use when the user asks to modernize an extension, prepare for subinterpreters, migrate to stable ABI, clean up deprecated APIs, or assess migration effort for a C extension."
+description: "Extension modernization assessment covering multi-phase init migration, stable ABI adoption, version compatibility, and free-threading readiness. Use when the user asks to modernize an extension, prepare for subinterpreters, migrate to stable ABI, clean up deprecated APIs, or assess migration effort for a Rust extension."
 argument-hint: "[scope]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
@@ -10,12 +10,12 @@ Run the modernization-focused agents to assess what needs to change to bring the
 
 **Scope:** "$ARGUMENTS" (default: entire project)
 
-**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/cext-review-toolkit/` directory. Resolve it relative to this file's location.
+**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/rust-ext-review-toolkit/` directory. Resolve it relative to this file's location.
 
 ## Workflow
 
 1. Run `python <plugin_root>/scripts/discover_extension.py [scope]` to detect the extension layout
-2. If no C extension found, inform the user and stop
+2. If no Rust extension found, inform the user and stop
 3. Check the `code_generation` field. If `"cython"` or `"mypyc"`, note that migration recommendations apply to the code generator, not the generated output. Skip stable-abi-checker and version-compat-scanner (answers are always "generator limitation").
 4. Run applicable modernization agents with at most 2 in parallel, feeding discovery context:
    - **module-state-checker** -- init style, global state, module lifecycle
@@ -101,12 +101,12 @@ and touches [N] files. Phases 2-5 are incremental and can be done separately."]
 - [PEP 384 -- Defining a Stable ABI](https://peps.python.org/pep-0384/)
 - [PEP 703 -- Making the Global Interpreter Lock Optional](https://peps.python.org/pep-0703/)
 - [pythoncapi-compat](https://github.com/python/pythoncapi-compat)
-- [Porting C extensions to Python 3.13+](https://docs.python.org/3/howto/isolating-extensions.html)
+- [Porting Rust extensions to Python 3.13+](https://docs.python.org/3/howto/isolating-extensions.html)
 ```
 
 ## Usage
 
 ```
-/cext-review-toolkit:migrate              # Full migration assessment
-/cext-review-toolkit:migrate src/         # Specific directory
+/rust-ext-review-toolkit:migrate              # Full migration assessment
+/rust-ext-review-toolkit:migrate src/         # Specific directory
 ```

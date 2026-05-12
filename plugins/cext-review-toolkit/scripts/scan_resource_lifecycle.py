@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track non-PyObject resource allocation/free pairing in C extension code.
+"""Track non-PyObject resource allocation/free pairing in Rust extension code.
 
 Finds allocations (malloc, PyMem_Malloc, H5Tcreate, PyObject_GetBuffer, etc.)
 that may not have a matching free on all exit paths. This catches resource leaks
