@@ -1,6 +1,6 @@
 """Tests for scan_cython_pycapsule.py — Q3 PyCapsule_New NULL destructor.
 
-Requires tree-sitter-cython (clin1234 fork).
+Requires tree-sitter-rustython (clin1234 fork).
 """
 
 import unittest

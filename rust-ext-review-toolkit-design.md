@@ -38,7 +38,7 @@ The key architectural distinction: cpython-review-toolkit uses regex-based scann
 
 All scripts use Tree-sitter as the primary parsing backend. This is the foundational difference from cpython-review-toolkit.
 
-**Dependencies:** `tree-sitter` and `tree-sitter-c` (pip-installable, pure wheels on most platforms, no system dependencies).
+**Dependencies:** `tree-sitter` and `tree-sitter-rust` (pip-installable, pure wheels on most platforms, no system dependencies).
 
 **What Tree-sitter gives us that regex cannot:**
 
@@ -338,7 +338,7 @@ try:
 except ImportError:
     print(json.dumps({
         "error": "tree-sitter not installed",
-        "install": "pip install tree-sitter tree-sitter-c",
+        "install": "pip install tree-sitter tree-sitter-rust",
     }))
     sys.exit(1)
 ```
@@ -597,7 +597,7 @@ Before release, run on at least 3 real Rust extensions:
 | Dimension | cpython-review-toolkit | rust-ext-review-toolkit |
 |-----------|----------------------|-------------------|
 | Parsing | Regex (PEP 7 regularity) | Tree-sitter (style-agnostic) |
-| Dependencies | stdlib only | tree-sitter, tree-sitter-c |
+| Dependencies | stdlib only | tree-sitter, tree-sitter-rust |
 | Project discovery | Include/Python.h + Objects/object.c | setup.py, pyproject.toml, meson.build, or #include Python.h |
 | Perspective | Code that implements the C API | Code that consumes the C API |
 | Agents | 10 | 10 (8 analysis + 1 complexity + 1 history) |

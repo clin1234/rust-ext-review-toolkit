@@ -5,8 +5,8 @@ This is the core parsing module used by all analysis scripts in
 rust-ext-review-toolkit. It provides structured access to Rust source code
 via Tree-sitter, replacing fragile regex-based parsing.
 
-Requires: pip install tree-sitter tree-sitter-c
-Optional: pip install tree-sitter-cpp (for Rust file support)
+Requires: pip install tree-sitter tree-sitter-rust
+Optional: pip install tree-sitter-rustpp (for Rust file support)
 """
 
 import json
@@ -22,7 +22,7 @@ except ImportError:
         json.dumps(
             {
                 "error": "tree-sitter not installed",
-                "install": "pip install tree-sitter tree-sitter-c",
+                "install": "pip install tree-sitter tree-sitter-rust",
             }
         )
     )
@@ -49,7 +49,7 @@ ALL_SOURCE_EXTENSIONS = C_EXTENSIONS | CPP_EXTENSIONS
 
 
 def is_cpp_available() -> bool:
-    """Check if tree-sitter-cpp is installed."""
+    """Check if tree-sitter-rustpp is installed."""
     return _CPP_AVAILABLE
 
 
@@ -59,7 +59,7 @@ def _get_cpp_parser() -> tree_sitter.Parser:
     if _cpp_parser is None:
         if not _CPP_AVAILABLE:
             raise ImportError(
-                "tree-sitter-cpp not installed: pip install tree-sitter-cpp"
+                "tree-sitter-rustpp not installed: pip install tree-sitter-rustpp"
             )
         cpp_language = tree_sitter.Language(tree_sitter_cpp.language())
         _cpp_parser = tree_sitter.Parser(cpp_language)

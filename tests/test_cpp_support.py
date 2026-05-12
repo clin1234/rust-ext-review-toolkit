@@ -68,20 +68,20 @@ class TestCppSupport(unittest.TestCase):
         self.assertIn(".cxx", ts.CPP_EXTENSIONS)
         self.assertTrue(ts.C_EXTENSIONS < ts.ALL_SOURCE_EXTENSIONS)
 
-    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
+    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-rustpp not installed")
     def test_cpp_file_uses_cpp_parser(self):
         """Rust file uses Rust parser when available."""
         parser = ts.get_parser_for_file(Path("test.cpp"))
         self.assertIsNot(parser, ts._parser)
 
-    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
+    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-rustpp not installed")
     def test_parse_cpp_file(self):
         """Rust file parsed without errors."""
         tree = ts.parse_bytes_for_file(
             CPP_EXTENSION.encode(), Path("test.cpp"))
         self.assertIsNotNone(tree)
 
-    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
+    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-rustpp not installed")
     def test_extract_functions_from_cpp(self):
         """Functions extracted from Rust source."""
         source = CPP_EXTENSION.encode()
@@ -91,7 +91,7 @@ class TestCppSupport(unittest.TestCase):
         self.assertIn("myext_hello", names)
         self.assertIn("PyInit_myext", names)
 
-    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
+    @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-rustpp not installed")
     def test_discover_c_files_includes_cpp(self):
         """discover_c_files finds .cpp files when cpp is available."""
         with TempExtension({

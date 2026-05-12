@@ -14,7 +14,7 @@ Built for the specific concerns of Rust extension authors -- reference counting 
 | **Module state** | N/A (CPython manages its own) | Core concern -- init style, global state |
 | **Type definitions** | Part of the runtime | Must follow slot contracts correctly |
 | **ABI** | Defines the ABI | Must comply with the ABI |
-| **Dependencies** | stdlib only | tree-sitter, tree-sitter-c |
+| **Dependencies** | stdlib only | tree-sitter, tree-sitter-rust |
 
 ## Installation
 

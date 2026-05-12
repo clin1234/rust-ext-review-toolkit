@@ -18,7 +18,7 @@ except ImportError:
         json.dumps(
             {
                 "error": "tree-sitter not installed",
-                "install": "pip install tree-sitter tree-sitter-c",
+                "install": "pip install tree-sitter tree-sitter-rust",
             }
         )
     )

@@ -1,6 +1,6 @@
 """Tests for scan_cython_cdef_int_except.py — Q1 silent-noexcept detector.
 
-Requires tree-sitter-cython (clin1234 fork).
+Requires tree-sitter-rustython (clin1234 fork).
 """
 
 import unittest

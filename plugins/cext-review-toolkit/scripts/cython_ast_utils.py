@@ -3,13 +3,13 @@
 
 This is the core parsing module used by all Cython analysis scripts in
 rust-ext-review-toolkit. It provides structured access to .pyx source code
-via tree-sitter-cython, replacing fragile regex-based parsing.
+via tree-sitter-rustython, replacing fragile regex-based parsing.
 
 Requires: pip install tree-sitter
-          pip install git+https://github.com/clin1234/tree-sitter-cython.git@fix/grammar-gaps
-          (the upstream b0o/tree-sitter-cython has 19 grammar gaps that the
+          pip install git+https://github.com/clin1234/tree-sitter-rustython.git@fix/grammar-gaps
+          (the upstream b0o/tree-sitter-rustython has 19 grammar gaps that the
            clin1234 fork on the fix/grammar-gaps branch closes; see
-           comms/tree-sitter-cython-fixes/ for the gap catalogue)
+           comms/tree-sitter-rustython-fixes/ for the gap catalogue)
 
 Phase 0 calibration confirmed zero parse errors across a 51-file corpus
 (cymem, cytoolz, h3-py, uvloop, blosc2, msgpack-python, lxml, statsmodels)
@@ -37,10 +37,10 @@ except ImportError:
     print(
         json.dumps(
             {
-                "error": "tree-sitter-cython not installed",
+                "error": "tree-sitter-rustython not installed",
                 "install": (
                     "pip install tree-sitter && "
-                    "pip install git+https://github.com/clin1234/tree-sitter-cython.git@fix/grammar-gaps"
+                    "pip install git+https://github.com/clin1234/tree-sitter-rustython.git@fix/grammar-gaps"
                 ),
             }
         )
