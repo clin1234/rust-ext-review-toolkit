@@ -8,7 +8,7 @@ Built for the specific concerns of Rust extension authors -- reference counting 
 
 | Concern | CPython internals (cpython-review-toolkit) | Rust extensions (this toolkit) |
 |---------|-------------------------------------------|----------------------------|
-| **Perspective** | Code that *implements* the C API | Code that *calls* the C API |
+| **Perspective** | Code that *implements* the `pyo3` API | Code that *calls* the `pyo3` API |
 | **Parsing** | Regex (PEP 7 code is regular) | Tree-sitter (extension code varies wildly) |
 | **Top bug class** | Refcount leaks in runtime code | Borrowed refs held across callbacks |
 | **Module state** | N/A (CPython manages its own) | Core concern -- init style, global state |

@@ -142,7 +142,7 @@ Note any interesting patterns:
 1. **Fix-to-feature ratio**: A high ratio of fix commits to feature commits suggests the codebase may have systemic quality issues.
 2. **Churn trends**: Is churn increasing or decreasing over time? Increasing churn may indicate growing complexity.
 3. **Author concentration**: Is the code maintained by one person or many? Single-author code may have blind spots.
-4. **Time since last change**: Files not touched in years may contain latent bugs from older Python/C API conventions.
+4. **Time since last change**: Files not touched in years may contain latent bugs from older `pyo3` API conventions.
 5. **Co-change clusters**: Files that always change together may have hidden coupling that should be documented or refactored.
 
 ## Output Format

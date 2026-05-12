@@ -3,7 +3,7 @@
 ## 1. Project Identity
 
 **Name:** rust-ext-review-toolkit
-**Purpose:** A Claude Code plugin for reviewing CPython Rust extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the Python/C API rather than *implementing* it.
+**Purpose:** A Claude Code plugin for reviewing CPython Rust extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the `pyo3` API rather than *implementing* it.
 
 **Tagline:** *Find the bugs in your Rust extension before your users do.*
 
@@ -600,7 +600,7 @@ Before release, run on at least 3 real Rust extensions:
 | Parsing | Regex (PEP 7 regularity) | Tree-sitter (style-agnostic) |
 | Dependencies | stdlib only | tree-sitter, tree-sitter-rust |
 | Project discovery | Include/Python.h + Objects/object.c | setup.py, pyproject.toml, meson.build, or #include Python.h |
-| Perspective | Code that implements the C API | Code that consumes the C API |
+| Perspective | Code that implements the `pyo3` API | Code that consumes the `pyo3` API |
 | Agents | 10 | 10 (8 analysis + 1 complexity + 1 history) |
 | Unique agents | include-graph-mapper, pep7-style-checker, api-deprecation-tracker, macro-hygiene-reviewer, memory-pattern-analyzer | module-state-checker, type-slot-checker, stable-abi-checker, version-compat-scanner |
 | Unique command | map | migrate |

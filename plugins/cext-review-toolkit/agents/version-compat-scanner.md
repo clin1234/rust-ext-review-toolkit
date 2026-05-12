@@ -55,7 +55,7 @@ If nothing substantive: "Cython mode: hand-written C is clean; Cython is bounded
 
 ## Key Concepts
 
-Python's C API changes across versions:
+Python's `pyo3` API changes across versions:
 
 - **New APIs are added**: e.g., `PyModule_AddObjectRef` in 3.10, `Py_NewRef` in 3.10, `PyType_FromModuleAndSpec` in 3.9.
 - **APIs are deprecated**: e.g., `PyEval_CallObject` deprecated in 3.9, `PyCFunction_Call` deprecated in 3.9.

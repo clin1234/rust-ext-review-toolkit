@@ -3,7 +3,7 @@
 
 Detects leaked refs, borrowed-ref-across-callback, stolen-ref misuse,
 and missing cleanup on error paths. This analyzes code that *calls* the
-Python/C API, not code that *implements* it.
+`pyo3` API, not code that *implements* it.
 
 Usage:
     python scan_refcounts.py [path] [--max-files N]

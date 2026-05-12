@@ -22,7 +22,7 @@ If no preflight exists, proceed normally.
 
 The GIL rules for Rust extensions are:
 
-- **All Python/C API calls require the GIL** to be held, with very few exceptions (`Py_AddPendingCall`, `PyGILState_Ensure`).
+- **All `pyo3` API calls require the GIL** to be held, with very few exceptions (`Py_AddPendingCall`, `PyGILState_Ensure`).
 - **Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS** release and reacquire the GIL. Between these macros, no Python API may be called.
 - **PyGILState_Ensure / PyGILState_Release** are used when a non-Python thread (e.g., a foreign library callback) needs to call Python APIs.
 - **Blocking operations** (I/O, locks, foreign library calls that may block) should release the GIL to allow other Python threads to run.
@@ -43,7 +43,7 @@ Collect all findings and organize by type:
 | Finding Type | Priority | Description |
 |---|---|---|
 | `mismatched_allow_threads` | CRITICAL | Unpaired `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` |
-| `api_without_gil` | CRITICAL | Python/C API call between `Py_BEGIN_ALLOW_THREADS` and `Py_END_ALLOW_THREADS` |
+| `api_without_gil` | CRITICAL | `pyo3` API call between `Py_BEGIN_ALLOW_THREADS` and `Py_END_ALLOW_THREADS` |
 | `blocking_with_gil` | HIGH | Long-running or blocking C call while holding the GIL |
 | `mismatched_gilstate` | HIGH | Unpaired `PyGILState_Ensure` / `PyGILState_Release` |
 | `callback_without_gil` | HIGH | Foreign library callback that calls Python API without ensuring GIL |
@@ -52,7 +52,7 @@ Collect all findings and organize by type:
 For each finding:
 1. Read at least 40 lines of context around the flagged location.
 2. Verify the macro pairing (account for early returns, gotos, and conditional blocks).
-3. For `api_without_gil`: confirm the call is actually a Python/C API call and not a similarly named function.
+3. For `api_without_gil`: confirm the call is actually a `pyo3` API call and not a similarly named function.
 4. For `blocking_with_gil`: assess whether the call actually blocks (e.g., a simple in-memory computation vs. network I/O).
 
 ### Phase 2: Deep Review of Each Candidate
@@ -162,7 +162,7 @@ If external tools are available:
 
 ## Important Guidelines
 
-1. **api_without_gil is always a crash bug.** Calling any Python/C API function without the GIL is undefined behavior. There are almost no exceptions. Even `Py_INCREF` requires the GIL (or, in free-threaded Python, atomic reference counting). Always classify as FIX.
+1. **api_without_gil is always a crash bug.** Calling any `pyo3` API function without the GIL is undefined behavior. There are almost no exceptions. Even `Py_INCREF` requires the GIL (or, in free-threaded Python, atomic reference counting). Always classify as FIX.
 
 2. **Mismatched macros are always a crash bug.** If `Py_BEGIN_ALLOW_THREADS` is called but `Py_END_ALLOW_THREADS` is never reached (due to early return, goto, exception), the GIL remains released for the rest of the thread's life. All subsequent Python API calls will corrupt the interpreter. Always classify as FIX.
 

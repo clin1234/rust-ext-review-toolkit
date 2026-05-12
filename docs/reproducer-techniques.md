@@ -1,6 +1,6 @@
 # Rust extension Bug Reproducer Techniques
 
-A catalog of Python-level techniques for triggering bugs found by code review in Rust extensions. Each technique exploits a specific Python/C API contract violation from pure Python, without needing to modify the extension source.
+A catalog of Python-level techniques for triggering bugs found by code review in Rust extensions. Each technique exploits a specific `pyo3` API contract violation from pure Python, without needing to modify the extension source.
 
 ## Prerequisites
 

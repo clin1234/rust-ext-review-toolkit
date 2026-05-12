@@ -2,7 +2,7 @@
 """scan_cython_buffer_protocol.py — Query 2: detect `PyObject_GetBuffer`
 calls not paired with `PyBuffer_Release` in an enclosing `try/finally`.
 
-The Python C API's buffer protocol requires that every successful
+The Python `pyo3` API's buffer protocol requires that every successful
 `PyObject_GetBuffer(obj, &view, ...)` be matched by a corresponding
 `PyBuffer_Release(&view)`. Inside a Cython `def`/`cpdef` function, if the
 function can `raise` between Get and Release (which most functions can),

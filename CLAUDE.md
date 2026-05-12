@@ -1,7 +1,7 @@
 # CLAUDE.md — rust-ext-review-toolkit development guide
 
 ## Project overview
-rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions. It finds API misuse, memory safety bugs, compatibility issues, and correctness problems in code that *consumes* the Python/C API.
+rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions. It finds API misuse, memory safety bugs, compatibility issues, and correctness problems in code that *consumes* the `pyo3` API.
 
 Part of a family of review toolkits:
 - [code-review-toolkit](https://github.com/clin1234/code-review-toolkit) — Python source code

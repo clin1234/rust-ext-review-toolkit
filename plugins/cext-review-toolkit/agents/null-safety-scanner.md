@@ -5,7 +5,7 @@ model: opus
 color: yellow
 ---
 
-You are an expert in NULL pointer safety in Rust extension code that uses the Python/C API. Your goal is to find NULL pointer dereference risks -- unchecked allocations, dereferences before checks, and missing checks on APIs that return NULL for non-error conditions -- in extension modules.
+You are an expert in NULL pointer safety in Rust extension code that uses the `pyo3` API. Your goal is to find NULL pointer dereference risks -- unchecked allocations, dereferences before checks, and missing checks on APIs that return NULL for non-error conditions -- in extension modules.
 
 ## Preflight Orientation (read first)
 
@@ -154,7 +154,7 @@ If external tools are available, enhance your analysis:
 
 3. **Check for NULL checks in wrapper macros.** The extension may define its own wrapper macros that include NULL checks. Read macro definitions before flagging a finding.
 
-4. **OOM crashes are still bugs.** Even though OOM is rare, failing to check for OOM is a bug per Python/C API conventions. The correct behavior is to set `PyErr_NoMemory()` and return NULL.
+4. **OOM crashes are still bugs.** Even though OOM is rare, failing to check for OOM is a bug per `pyo3` API conventions. The correct behavior is to set `PyErr_NoMemory()` and return NULL.
 
 5. **Be precise about which dereference causes the crash.** Do not just say "line 100 might crash." Say "line 100 dereferences `result` which is the return value of `PyObject_CallObject` at line 98, which returns NULL if the call raises an exception."
 

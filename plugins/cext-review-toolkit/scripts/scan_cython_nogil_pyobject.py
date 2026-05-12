@@ -3,7 +3,7 @@
 inside `nogil` contexts that don't re-acquire the GIL via `with gil:`.
 
 Cython lets you write `cdef T foo(...) nogil:` or `with nogil:` blocks where
-the GIL is released. Touching the Python C API in those scopes is undefined
+the GIL is released. Touching the Python `pyo3` API in those scopes is undefined
 behavior unless you re-enter `with gil:` first. The Cython compiler catches
 many cases at compile time, but several patterns slip through (especially
 when the operation is hidden behind a helper or when `except *` makes raises

@@ -51,7 +51,7 @@ If the project IS abi3-claimed, run the standard verification steps below — bu
 
 Python provides two levels of API restriction:
 
-- **Limited API**: A subset of the Python/C API that an extension voluntarily restricts itself to by defining `Py_LIMITED_API` before including `Python.h`. This limits which functions, macros, and struct fields are available.
+- **Limited API**: A subset of the `pyo3` API that an extension voluntarily restricts itself to by defining `Py_LIMITED_API` before including `Python.h`. This limits which functions, macros, and struct fields are available.
 - **Stable ABI**: The binary compatibility guarantee. If an extension is built with the limited API, its compiled `.so`/`.pyd` can be used across multiple Python versions without recompilation. The stable ABI is a subset of what the limited API exposes.
 
 Key rules:
