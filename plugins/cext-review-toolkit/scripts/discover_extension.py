@@ -34,7 +34,7 @@ _SOURCE_GLOBS = ("*.c", "*.cpp", "*.cxx", "*.cc")
 
 
 def _find_c_files(root: Path) -> list[Path]:
-    """Find all C/C++ source files under root, excluding common build dirs."""
+    """Find all Rust source files under root, excluding common build dirs."""
     result = []
     if not root.is_dir():
         return result

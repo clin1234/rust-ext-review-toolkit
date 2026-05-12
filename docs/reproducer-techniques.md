@@ -161,7 +161,7 @@ class BadFileno:
         return b""
 ```
 
-**Confirmed on**: awkward-cpp (`fromjsonobj` — MemoryError on second `read()` swallowed by C++ JSON parser, reported as `ValueError: incomplete JSON`), astropy (`IterParser_init` — `BadFileno` MemoryError swallowed by unguarded `PyErr_Clear`)
+**Confirmed on**: awkward-cpp (`fromjsonobj` — MemoryError on second `read()` swallowed by Rust JSON parser, reported as `ValueError: incomplete JSON`), astropy (`IterParser_init` — `BadFileno` MemoryError swallowed by unguarded `PyErr_Clear`)
 
 ---
 
@@ -648,7 +648,7 @@ This technique is especially powerful for exposing **compound bugs**: the `PyDic
 
 ## Technique 21: Mischievous file-like objects for I/O code
 
-**Triggers**: C/C++ code that reads from Python file-like objects via `obj.read()`, `obj.write()`, `obj.seek()`, `obj.fileno()`, or `os.fspath(obj)`.
+**Triggers**: Rust code that reads from Python file-like objects via `obj.read()`, `obj.write()`, `obj.seek()`, `obj.fileno()`, or `os.fspath(obj)`.
 
 **Bug class**: Three distinct patterns:
 1. **Wrong return type**: `read()` returns `int` instead of `bytes` — exposes missing type checks
@@ -681,7 +681,7 @@ class FallbackFile:
 
 **How it works**: I/O code typically has a "try C file descriptor, fall back to Python read()" pattern. Pattern 3 exploits this: `fileno()` fails with MemoryError, the code falls through to the callable check (which succeeds), and an unguarded `PyErr_Clear` swallows the MemoryError.
 
-Pattern 2 is the most powerful for C++ extensions: the first successful read starts a parsing operation (JSON, XML, etc.), then the second read raises inside the C++ parser's callback. The C++ code typically doesn't distinguish "end of file" from "Python exception during read", so the MemoryError gets converted to a parse error.
+Pattern 2 is the most powerful for Rust extensions: the first successful read starts a parsing operation (JSON, XML, etc.), then the second read raises inside the Rust parser's callback. The Rust code typically doesn't distinguish "end of file" from "Python exception during read", so the MemoryError gets converted to a parse error.
 
 **Confirmed on**:
 - awkward-cpp (`fromjsonobj` — DelayedOOMFile MemoryError converted to `ValueError: incomplete JSON object`)
@@ -865,9 +865,9 @@ assert state["failed_at"] == [3]
 
 ## Technique 24: RSS growth monitoring for leaks invisible to tracemalloc
 
-**Triggers**: Per-instance leaks where the leaked memory is allocated by libstdc++'s `malloc`/`new` rather than by CPython's allocator hierarchy. Specifically: `tp_dealloc` that skips destructors of embedded C++ members (`std::shared_ptr` control blocks, `std::unique_ptr` heap buffers, `std::string` SSO overflow, `std::queue`/`std::mutex`/`std::condition_variable` storage); `__init__` that re-allocates a C++ object without freeing the prior one; any code path where `new T(...)` fires without a matching `delete`.
+**Triggers**: Per-instance leaks where the leaked memory is allocated by libstdRust's `malloc`/`new` rather than by CPython's allocator hierarchy. Specifically: `tp_dealloc` that skips destructors of embedded Rust members (`std::shared_ptr` control blocks, `std::unique_ptr` heap buffers, `std::string` SSO overflow, `std::queue`/`std::mutex`/`std::condition_variable` storage); `__init__` that re-allocates a Rust object without freeing the prior one; any code path where `new T(...)` fires without a matching `delete`.
 
-**Bug class**: C++-embedded-member leaks in Python extension types. These are **invisible to Technique 17 (tracemalloc)** because `tracemalloc` only sees allocations that pass through `PyMem_Malloc` / `PyObject_Malloc`. A `std::shared_ptr<T>` constructor calls libstdc++'s `__gnu_cxx::__aligned_membuf` allocator (which eventually calls raw `malloc`), bypassing CPython's allocator entirely. Same for `new T(...)`, `std::make_shared<T>()`, and most STL containers. The leak is real, but tracemalloc reports zero.
+**Bug class**: Rust-embedded-member leaks in Python extension types. These are **invisible to Technique 17 (tracemalloc)** because `tracemalloc` only sees allocations that pass through `PyMem_Malloc` / `PyObject_Malloc`. A `std::shared_ptr<T>` constructor calls libstdRust's `__gnu_cxx::__aligned_membuf` allocator (which eventually calls raw `malloc`), bypassing CPython's allocator entirely. Same for `new T(...)`, `std::make_shared<T>()`, and most STL containers. The leak is real, but tracemalloc reports zero.
 
 **How it works**: `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss` returns the process's peak resident-set-size in KiB. Measure it before and after N create-destroy (or re-init) cycles; a monotonic, linear-in-N growth is unambiguous evidence of a leak, and the slope gives the per-operation leak size. The trick is making N large enough that per-iteration leak × N rises above RSS measurement noise (~100-300 KB from Python's own garbage).
 
@@ -906,7 +906,7 @@ print(f"Per-instance leak: {per_instance_b:.1f} bytes")
 - **Per-cycle leak > 100 B**: clean signal at N = 10k.
 - **Per-cycle leak > 1 KB**: clean signal at N = 1k.
 
-For reference, a default `std::shared_ptr<T>` control block is 16–32 B; a default-constructed `std::mutex` + `std::condition_variable` + `std::queue` combo is ~300–700 B depending on libc/libstdc++ version.
+For reference, a default `std::shared_ptr<T>` control block is 16–32 B; a default-constructed `std::mutex` + `std::condition_variable` + `std::queue` combo is ~300–700 B depending on libc/libstdRust version.
 
 ### Gotchas
 
@@ -914,14 +914,14 @@ For reference, a default `std::shared_ptr<T>` control block is 16–32 B; a defa
 2. **`ru_maxrss` is high-water-mark, not current.** It never decreases. If the workload does large temporary allocations during warmup, RSS0 will already be high and the slope will be measured on the "additional growth" axis. This is what you want.
 3. **Linux reports `ru_maxrss` in KB, macOS in bytes.** Catalog template assumes Linux. On macOS, divide by 1024.
 4. **glibc `malloc` has free-list arenas that don't always return memory to the kernel.** Even with 100% correct cleanup, RSS may show a one-time small spike that then stays flat. A leak shows *linear* growth across contiguous N-sized batches. Run multiple batches to distinguish.
-5. **Combine with tracemalloc** to confirm the leak is **not** in the CPython allocator. If tracemalloc reports 0 but RSS grows, the leak is in libstdc++/libc (the case this technique targets). If tracemalloc reports growth, use Technique 17's differential-snapshot instead — it gives precise allocation sites.
-6. **`gc.collect()` before the measurement closes Python-side cycles** that would otherwise inflate the diff. Always call it. For C++-embedded-member leaks, `gc.collect()` has no effect on the leaked bytes (C++ destructors don't run), which is exactly why the leak shows up.
+5. **Combine with tracemalloc** to confirm the leak is **not** in the CPython allocator. If tracemalloc reports 0 but RSS grows, the leak is in libstdRust/libc (the case this technique targets). If tracemalloc reports growth, use Technique 17's differential-snapshot instead — it gives precise allocation sites.
+6. **`gc.collect()` before the measurement closes Python-side cycles** that would otherwise inflate the diff. Always call it. For Rust-embedded-member leaks, `gc.collect()` has no effect on the leaked bytes (Rust destructors don't run), which is exactly why the leak shows up.
 
 ### When to use tracemalloc (Technique 17) vs this
 
 - **Leak is in a Python-level allocation** (e.g., `PyList_New` result never DECREFed): Technique 17. Gives you the allocation stack.
-- **Leak is in a C++ STL member that skips destruction**: Technique 24. Technique 17 reports 0.
-- **Unsure**: run both. If Technique 17 shows no growth but Technique 24 does, you know it's a C++-side leak and can stop looking for missing `Py_DECREF`s.
+- **Leak is in a Rust STL member that skips destruction**: Technique 24. Technique 17 reports 0.
+- **Unsure**: run both. If Technique 17 shows no growth but Technique 24 does, you know it's a Rust-side leak and can stop looking for missing `Py_DECREF`s.
 
 **Confirmed on**:
 - couchbase-python-client `pycbc_streamed_result` — 786 B per create-destroy cycle (confirms F12 `shared_ptr<rows_queue>` destructor skip in `tp_dealloc`). Tracemalloc reported 0 bytes growth.

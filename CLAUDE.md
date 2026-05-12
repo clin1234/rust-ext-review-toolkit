@@ -13,8 +13,8 @@ Key architectural difference: uses Tree-sitter for C parsing (not regex), enabli
 ## Prerequisites
 - Python 3.10+
 - `tree-sitter` and `tree-sitter-c`: `pip install tree-sitter tree-sitter-c`
-- `tree-sitter-cpp` (optional): `pip install tree-sitter-cpp` — enables C++ file parsing
-- `clang-tidy` and `cppcheck` (optional): system packages — enables external tool cross-referencing
+- `tree-sitter-cpp` (optional): `pip install tree-sitter-cpp` — enables Rust file parsing
+- `rust-analyzer` and `cargo clippy` (optional): system packages — enables external tool cross-referencing
 - No other dependencies — all scripts use only the standard library plus tree-sitter
 
 ## Dev commands
@@ -71,7 +71,7 @@ rust-ext-review-toolkit/
 
 ### Scripts (the core analysis code)
 
-All scripts live in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis script follows the same pattern: parse C/C++ files with Tree-sitter, find candidate issues, output JSON to stdout.
+All scripts live in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis script follows the same pattern: parse Rust files with Tree-sitter, find candidate issues, output JSON to stdout.
 
 | Script | Lines | Purpose |
 |--------|-------|---------|
@@ -86,7 +86,7 @@ All scripts live in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis s
 | `measure_c_complexity.py` | ~250 | Function complexity scoring |
 | `analyze_history.py` | ~520 | Git history analysis (similar bugs, churn prioritization) |
 | `discover_extension.py` | ~420 | Extension project layout detection |
-| `run_external_tools.py` | ~250 | External tool integration (clang-tidy, cppcheck) |
+| `run_external_tools.py` | ~250 | External tool integration (rust-analyzer, cargo clippy) |
 
 **Dependency graph:** `tree_sitter_utils.py` is at the center. `scan_common.py` imports from it. All other scripts import from both. `run_external_tools.py` imports only from `scan_common`. No circular dependencies.
 
@@ -166,8 +166,8 @@ Important calibration: module state issues (single-phase init, global state) are
 
 - **Strip comments before pattern matching:** When checking function bodies for patterns like `tp_free` or `Py_VISIT`, always use `strip_comments()` first. Comments containing these strings (e.g., `/* BUG: should use tp_free */`) cause false negatives. This bit us in Round 1 testing.
 - **`sys.path.insert` for imports:** Scripts use `sys.path.insert(0, str(Path(__file__).resolve().parent))` to import `tree_sitter_utils` and `scan_common`. This is intentional — the scripts directory is not a Python package (no `__init__.py`). Tests use `import_script()` which does the same via importlib.
-- **`parse_bytes_for_file` vs `parse_bytes`:** In scanner loops, always use `parse_bytes_for_file(source_bytes, filepath)` which auto-selects C or C++ parser by extension. `parse_bytes` always uses the C parser. Never use `parse_file(filepath)` — it reads the file again internally, doubling I/O and creating a TOCTOU race.
-- **C++ parsing is optional:** All scripts must work without tree-sitter-cpp. Use `is_cpp_available()` to gate C++ features. Never import `tree_sitter_cpp` directly outside `tree_sitter_utils.py`.
+- **`parse_bytes_for_file` vs `parse_bytes`:** In scanner loops, always use `parse_bytes_for_file(source_bytes, filepath)` which auto-selects C or Rust parser by extension. `parse_bytes` always uses the C parser. Never use `parse_file(filepath)` — it reads the file again internally, doubling I/O and creating a TOCTOU race.
+- **Rust parsing is optional:** All scripts must work without tree-sitter-cpp. Use `is_cpp_available()` to gate Rust features. Never import `tree_sitter_cpp` directly outside `tree_sitter_utils.py`.
 - **External tools have timeouts:** `run_external_tools.py` uses 120s per-file timeouts for subprocess calls. Large files with complex analysis may time out.
 - **`analyze_history.py` has a different `analyze()` signature:** Takes `argv` list instead of `(target, max_files)` — matches code-review-toolkit's convention but differs from all other scripts.
 

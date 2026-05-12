@@ -141,10 +141,10 @@ If external tools are available:
 
 1. Run: `python <plugin_root>/scripts/run_external_tools.py [scope] --compile-commands <path>`
 2. Cross-reference findings:
-   - `clang-analyzer-core.uninitialized` confirms unchecked PyArg_Parse output variable usage
+   - `rust-analyzer-core.uninitialized` confirms unchecked PyArg_Parse output variable usage
    - `cert-err34-c` confirms missing error checks on conversion functions
    - `bugprone-branch-clone` may reveal duplicated error handling that has diverged
-   - `clang-analyzer-deadcode.DeadStores` may identify unused error return values
+   - `rust-analyzer-deadcode.DeadStores` may identify unused error return values
 3. When both our scanner and an external tool flag the same location, upgrade confidence to HIGH
 
 ## Classification Rules

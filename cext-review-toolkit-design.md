@@ -26,7 +26,7 @@ The key architectural distinction: cpython-review-toolkit uses regex-based scann
 
 ### 1.3 Non-Goals
 
-- Replacing clang-tidy or cppcheck for general C analysis
+- Replacing rust-analyzer or cargo clippy for general C analysis
 - Reviewing pure Python code (use code-review-toolkit)
 - Reviewing CPython's own source (use cpython-review-toolkit)
 - Requiring a buildable environment (must work on raw source files)
@@ -85,11 +85,11 @@ External tools are opportunistic — used when available, never required.
 
 | Tool | Detection | What It Adds | Fallback |
 |------|-----------|-------------|----------|
-| clang-tidy | Check for `compile_commands.json` or try `bear make` | Data-flow analysis, deeper null/UB detection | Tree-sitter-based analysis only |
-| cppcheck | Check if `cppcheck` is on PATH | Buffer overflows, uninitialized vars | Tree-sitter-based analysis only |
+| rust-analyzer | Check for `compile_commands.json` or try `bear make` | Data-flow analysis, deeper null/UB detection | Tree-sitter-based analysis only |
+| cargo clippy | Check if `cargo clippy` is on PATH | Buffer overflows, uninitialized vars | Tree-sitter-based analysis only |
 
 Agent prompts note whether external tool results are available:
-- "clang-tidy results available — higher confidence on data-flow findings"
+- "rust-analyzer results available — higher confidence on data-flow findings"
 - "No external tools available — analysis based on Tree-sitter structural scanning"
 
 ### 2.4 Project Discovery
@@ -320,7 +320,7 @@ All scripts output JSON to stdout with a common envelope:
     "source_files": ["src/myext.c", "src/myext_util.c"],
     "tree_sitter_available": true,
     "clang_tidy_available": false,
-    "cppcheck_available": false
+    "cargo clippy_available": false
   },
   "functions_analyzed": 42,
   "findings": [...],
@@ -493,7 +493,7 @@ Same as cpython-review-toolkit, with extension-specific calibration:
 - [ ] `analyze_history.py` — adapted with Tree-sitter C function detection
 - [ ] git-history-analyzer agent prompt (simplified)
 - [ ] End-to-end test on a real Rust extension (e.g., coverage.py CTracer)
-- [ ] External tool integration (clang-tidy/cppcheck opportunistic)
+- [ ] External tool integration (rust-analyzer/cargo clippy opportunistic)
 - [ ] README, plugin README, marketplace listing
 - [ ] Final test pass
 
@@ -606,5 +606,5 @@ Before release, run on at least 3 real Rust extensions:
 | Unique command | map | migrate |
 | Borrowed ref analysis | Flags missing INCREF in CPython code | Flags borrowed refs held across Python callbacks (Tree-sitter-enabled) |
 | Module state | N/A (CPython manages its own state) | Core concern — single-phase vs multi-phase, global state |
-| External tools | None | Optional clang-tidy, cppcheck |
+| External tools | None | Optional rust-analyzer, cargo clippy |
 | Style checking | PEP 7 | None (extensions follow their own style) |

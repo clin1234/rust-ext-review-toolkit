@@ -1,5 +1,5 @@
 ---
-description: "Comprehensive Rust extension analysis using specialized agents. Use when the user asks to analyze, audit, or review a Rust extension, find bugs in Rust extension code, run all checks on an extension, or do a full extension review. Covers refcount safety, error handling, NULL safety, GIL discipline, module state, type slots, ABI compliance, version compatibility, PyErr_Clear auditing, resource lifecycle, and C/Python parity."
+description: "Comprehensive Rust extension analysis using specialized agents. Use when the user asks to analyze, audit, or review a Rust extension, find bugs in Rust extension code, run all checks on an extension, or do a full extension review. Covers refcount safety, error handling, NULL safety, GIL discipline, module state, type slots, ABI compliance, version compatibility, PyErr_Clear auditing, resource lifecycle, and Python parity."
 argument-hint: "[scope] [aspects] [options]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
@@ -35,7 +35,7 @@ Parse arguments into three categories:
 - `parity` → parity-checker
 - `complexity` → c-complexity-analyzer
 - `history` → git-history-analyzer
-- `external-tools` → run external tools only (clang-tidy, cppcheck)
+- `external-tools` → run external tools only (rust-analyzer, cargo clippy)
 - `all` → all agents (default)
 
 **Options**:
@@ -101,18 +101,18 @@ When dispatching kept agents on a Cython project, **tell each agent the code-gen
 After extension discovery, check for external tool availability:
 1. Check if `compile_commands.json` exists in the project root or common build directories (build/, _build/, builddir/)
 2. If found: run `python <plugin_root>/scripts/run_external_tools.py [scope] --compile-commands <path>`
-3. If not found: run `python <plugin_root>/scripts/run_external_tools.py [scope]` (cppcheck can still run without it)
+3. If not found: run `python <plugin_root>/scripts/run_external_tools.py [scope]` (cargo clippy can still run without it)
 4. Store the output -- individual agents in Phase 2 will cross-reference these findings
 5. Print a brief tool summary:
 
 ```
-External tools: clang-tidy (with compile_commands.json), cppcheck
-External findings: 3 clang-tidy, 5 cppcheck
+External tools: rust-analyzer (with compile_commands.json), cargo clippy
+External findings: 3 rust-analyzer, 5 cargo clippy
 ```
 
 If no external tools are available, note it and continue without:
 ```
-External tools: none available (install clang-tidy and/or cppcheck for enhanced analysis)
+External tools: none available (install rust-analyzer and/or cargo clippy for enhanced analysis)
 ```
 
 ### Phase 1: Temporal Context (if git repo)
@@ -144,7 +144,7 @@ Based on the requested aspects (default: all), launch the appropriate agents. Ea
 **Group D -- Compatibility and parity**:
 9. stable-abi-checker
 10. version-compat-scanner
-11. parity-checker (only for extensions with dual C/Python implementations)
+11. parity-checker (only for extensions with dual Python implementations)
 
 **Group E -- Code quality**:
 12. c-complexity-analyzer
@@ -210,7 +210,7 @@ After all agents complete, perform deduplication, conflict resolution, and produ
 | PyErr_Clear Safety | G/Y/R | N | N | [1-line summary] |
 | ABI Compliance | G/Y/R | N | N | [1-line summary] |
 | Version Compat | G/Y/R | N | N | [1-line summary] |
-| C/Python Parity | G/Y/R | N | N | [1-line summary] |
+| Python Parity | G/Y/R | N | N | [1-line summary] |
 | Complexity | G/Y/R | - | N | [1-line summary] |
 
 G = No FIX findings | Y = 1-3 FIX findings | R = 4+ FIX findings

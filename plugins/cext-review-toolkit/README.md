@@ -53,7 +53,7 @@ rust-ext-review-toolkit/
 
 ## Agents: 13
 
-4 safety-critical (refcount, error path, null safety, GIL), 1 resource lifecycle, 3 extension-specific (module state, type slots, PyErr_Clear), 2 compatibility (stable ABI, version compat), 1 C/Python parity, 1 complexity, 1 history.
+4 safety-critical (refcount, error path, null safety, GIL), 1 resource lifecycle, 3 extension-specific (module state, type slots, PyErr_Clear), 2 compatibility (stable ABI, version compat), 1 Python parity, 1 complexity, 1 history.
 
 ## Scripts: 15
 

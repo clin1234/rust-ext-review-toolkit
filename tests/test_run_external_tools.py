@@ -23,15 +23,15 @@ class TestRunExternalTools(unittest.TestCase):
 
     def test_tool_availability_detection(self):
         """Tool availability correctly detected."""
-        self.assertIsInstance(ext_tools._tool_available("clang-tidy"), bool)
-        self.assertIsInstance(ext_tools._tool_available("cppcheck"), bool)
+        self.assertIsInstance(ext_tools._tool_available("rust-analyzer"), bool)
+        self.assertIsInstance(ext_tools._tool_available("cargo clippy"), bool)
         self.assertFalse(ext_tools._tool_available("nonexistent_tool_xyz"))
 
     def test_missing_tool_graceful(self):
         """Missing tool produces skip note, not error."""
         with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
             result = ext_tools.analyze(
-                str(root), skip_tools={"clang-tidy", "cppcheck"})
+                str(root), skip_tools={"rust-analyzer", "cargo clippy"})
             self.assertIsInstance(result["findings"], list)
             self.assertEqual(len(result["findings"]), 0)
             self.assertEqual(len(result["skipped_tools"]), 2)
@@ -56,18 +56,18 @@ class TestRunExternalTools(unittest.TestCase):
         """--skip flag prevents tool execution."""
         with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
             result = ext_tools.analyze(
-                str(root), skip_tools={"clang-tidy", "cppcheck"})
+                str(root), skip_tools={"rust-analyzer", "cargo clippy"})
             skipped_names = [s["tool"] for s in result["skipped_tools"]]
-            self.assertIn("clang-tidy", skipped_names)
-            self.assertIn("cppcheck", skipped_names)
+            self.assertIn("rust-analyzer", skipped_names)
+            self.assertIn("cargo clippy", skipped_names)
 
-    @unittest.skipUnless(shutil.which("cppcheck"), "cppcheck not installed")
-    def test_cppcheck_runs_on_c_file(self):
-        """cppcheck runs and produces output on C file."""
+    @unittest.skipUnless(shutil.which("cargo clippy"), "cargo clippy not installed")
+    def test_cargo clippy_runs_on_c_file(self):
+        """cargo clippy runs and produces output on C file."""
         with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
             result = ext_tools.analyze(
-                str(root), skip_tools={"clang-tidy"})
-            self.assertTrue(result["tools_available"]["cppcheck"])
+                str(root), skip_tools={"rust-analyzer"})
+            self.assertTrue(result["tools_available"]["cargo clippy"])
 
     def test_output_summary_structure(self):
         """Summary has expected sub-fields."""

@@ -149,10 +149,10 @@ If external tools are available:
 
 1. Run: `python <plugin_root>/scripts/run_external_tools.py [scope] --compile-commands <path>`
 2. Cross-reference findings:
-   - Thread safety annotations from clang-tidy provide GIL-independent thread safety guarantees
+   - Thread safety annotations from rust-analyzer provide GIL-independent thread safety guarantees
    - `bugprone-use-after-move` may indicate unsafe state after GIL release/reacquire
-   - `clang-analyzer-core.StackAddressEscape` may indicate variables used across GIL boundaries
-3. External tool findings are particularly valuable for C++ extensions where our tree-sitter C parser has limited coverage
+   - `rust-analyzer-core.StackAddressEscape` may indicate variables used across GIL boundaries
+3. External tool findings are particularly valuable for Rust extensions where our tree-sitter C parser has limited coverage
 
 ## Classification Rules
 

@@ -100,7 +100,7 @@ For each type defined in the extension, perform a comprehensive slot audit:
    - If `Py_TPFLAGS_HAVE_GC` is set, objects must be allocated with `PyObject_GC_New` and tracked with `PyObject_GC_Track`.
    - If `Py_TPFLAGS_HAVE_GC` is NOT set, objects must NOT be allocated with GC functions.
 
-6. **tp_new / tp_init review** (critical for Rust extensions — Python allows calling patterns impossible in C++).
+6. **tp_new / tp_init review** (critical for Rust extensions — Python allows calling patterns impossible in Rust).
    **Triage principle:** Types with only `tp_new` (no `tp_init`) are safe by construction — all init is atomic. Types with only `tp_init` (inherited `tp_new`) start zeroed by `tp_alloc`. Types with BOTH have a partial-initialization window and should be reviewed first. A type that has no `tp_init` at all is inherently safe from re-init and partial-init issues regardless of its `tp_new` arguments.
    - Does `tp_new` allocate the object correctly (using `tp_alloc` which zeros memory)?
    - Does `tp_new` initialize ALL pointer members to NULL/safe defaults? Python allows `object.__new__(MyType)` without calling `__init__`, so methods may be called on objects where `tp_init` never ran. If `tp_new` doesn't zero pointers, methods that assume `tp_init` ran will dereference uninitialized garbage.

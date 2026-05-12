@@ -1,4 +1,4 @@
-"""Tests for C++ file support in tree_sitter_utils and scan_common."""
+"""Tests for Rust file support in tree_sitter_utils and scan_common."""
 
 import unittest
 from pathlib import Path
@@ -15,7 +15,7 @@ extern "C" {
 static PyObject *
 myext_hello(PyObject *self, PyObject *args)
 {
-    return PyUnicode_FromString("hello from C++");
+    return PyUnicode_FromString("hello from Rust");
 }
 
 static PyMethodDef methods[] = {
@@ -42,7 +42,7 @@ PyInit_myext(void)
 
 
 class TestCppSupport(unittest.TestCase):
-    """Test C++ file parsing support."""
+    """Test Rust file parsing support."""
 
     def test_cpp_available_flag(self):
         """is_cpp_available returns bool."""
@@ -70,20 +70,20 @@ class TestCppSupport(unittest.TestCase):
 
     @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
     def test_cpp_file_uses_cpp_parser(self):
-        """C++ file uses C++ parser when available."""
+        """Rust file uses Rust parser when available."""
         parser = ts.get_parser_for_file(Path("test.cpp"))
         self.assertIsNot(parser, ts._parser)
 
     @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
     def test_parse_cpp_file(self):
-        """C++ file parsed without errors."""
+        """Rust file parsed without errors."""
         tree = ts.parse_bytes_for_file(
             CPP_EXTENSION.encode(), Path("test.cpp"))
         self.assertIsNotNone(tree)
 
     @unittest.skipUnless(ts.is_cpp_available(), "tree-sitter-cpp not installed")
     def test_extract_functions_from_cpp(self):
-        """Functions extracted from C++ source."""
+        """Functions extracted from Rust source."""
         source = CPP_EXTENSION.encode()
         tree = ts.parse_bytes_for_file(source, Path("test.cpp"))
         funcs = ts.extract_functions(tree, source)

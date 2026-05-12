@@ -133,8 +133,8 @@ Every finding is tagged:
 ### External Tool Integration (Optional)
 
 If available, the toolkit can use:
-- **clang-tidy** with `compile_commands.json` for deeper data-flow analysis
-- **cppcheck** for buffer overflow and uninitialized variable detection
+- **rust-analyzer** with `compile_commands.json` for deeper data-flow analysis
+- **cargo clippy** for buffer overflow and uninitialized variable detection
 
 These are never required -- the Tree-sitter-based analysis is the baseline.
 
@@ -188,7 +188,7 @@ These are never required -- the Tree-sitter-based analysis is the baseline.
 
 - **Tree-sitter, not a compiler**: Cannot resolve macros, follow pointer aliasing, or track through complex preprocessor conditionals. Reports candidates with expected 20-40% false positive rate; agents confirm or dismiss each finding.
 - **Single-file scope for scripts**: Scripts analyze each function independently. Cross-function reference ownership transfer is tracked only at the API boundary level.
-- **External tools are optional**: Without `compile_commands.json`, no clang-tidy or cppcheck integration. The Tree-sitter analysis is comprehensive but has inherent limits.
+- **External tools are optional**: Without `compile_commands.json`, no rust-analyzer or cargo clippy integration. The Tree-sitter analysis is comprehensive but has inherent limits.
 - **Struct-to-type matching is heuristic**: Connecting a PyTypeObject to its backing struct uses name matching and `tp_basicsize` analysis. Unusual naming or indirection may cause mismatches.
 
 ## Comparison with Sibling Projects

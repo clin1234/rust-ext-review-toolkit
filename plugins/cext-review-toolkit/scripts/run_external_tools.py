@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run external static analysis tools (clang-tidy, cppcheck) on C/C++ code.
+"""Run external static analysis tools (rust-analyzer, cargo clippy) on Rust code.
 
 Outputs JSON matching the standard rust-ext-review-toolkit envelope format.
 Both tools are optional -- gracefully skips unavailable ones.
@@ -56,15 +56,15 @@ def _find_compile_commands(root: Path, explicit: str | None) -> Path | None:
 def _run_clang_tidy(
     files: list[Path], compile_commands: Path, project_root: Path,
 ) -> list[dict]:
-    """Run clang-tidy on files using the compile database."""
+    """Run rust-analyzer on files using the compile database."""
     findings = []
-    checks = "-*,clang-analyzer-*,bugprone-*,cert-*"
+    checks = "-*,rust-analyzer-*,bugprone-*,cert-*"
 
     for filepath in files:
         try:
             result = subprocess.run(
                 [
-                    "clang-tidy",
+                    "rust-analyzer",
                     f"-p={compile_commands.parent}",
                     f"--checks={checks}",
                     "--quiet",
@@ -98,26 +98,23 @@ def _run_clang_tidy(
                 "severity": severity,
                 "detail": message,
                 "confidence": "high",
-                "tool": "clang-tidy",
+                "tool": "rust-analyzer",
             })
 
     return findings
 
 
-def _run_cppcheck(
+def _run_cargo_clippy(
     files: list[Path], project_root: Path,
     compile_commands: Path | None = None,
 ) -> list[dict]:
-    """Run cppcheck on files (works without compile_commands.json)."""
+    """Run cargo clippy on files (works without compile_commands.json)."""
     findings = []
     if not files:
         return findings
 
     cmd = [
-        "cppcheck",
-        "--enable=warning,performance,portability",
-        "--xml",
-        "--quiet",
+        "cargo clippy",
     ]
     if compile_commands:
         cmd.append(f"--project={compile_commands}")
@@ -135,7 +132,7 @@ def _run_cppcheck(
     except FileNotFoundError:
         return findings
 
-    # Parse XML output from stderr (cppcheck sends XML to stderr).
+    # Parse XML output from stderr (cargo clippy sends XML to stderr).
     xml_output = result.stderr
     if not xml_output.strip().startswith("<?xml"):
         return findings
@@ -170,14 +167,14 @@ def _run_cppcheck(
             rel = fpath
 
         findings.append({
-            "type": "cppcheck_finding",
+            "type": "cargo_clippy_finding",
             "file": rel,
             "line": lineno,
             "checker": checker,
             "severity": severity,
             "detail": message,
             "confidence": "high" if severity == "error" else "medium",
-            "tool": "cppcheck",
+            "tool": "cargo clippy",
         })
 
     return findings
@@ -196,41 +193,41 @@ def analyze(
 
     cc_path = _find_compile_commands(project_root, compile_commands)
 
-    has_tidy = _tool_available("clang-tidy")
-    has_cppcheck = _tool_available("cppcheck")
+    has_tidy = _tool_available("rust-analyzer")
+    has_cargo clippy = _tool_available("cargo clippy")
 
     skip = skip_tools or set()
     if only_tools:
-        if "clang-tidy" not in only_tools:
-            skip.add("clang-tidy")
-        if "cppcheck" not in only_tools:
-            skip.add("cppcheck")
+        if "rust-analyzer" not in only_tools:
+            skip.add("rust-analyzer")
+        if "cargo clippy" not in only_tools:
+            skip.add("cargo clippy")
 
     files = list(discover_c_files(scan_root, max_files=max_files))
 
     findings = []
     skipped_tools = []
 
-    # clang-tidy
-    if "clang-tidy" in skip:
-        skipped_tools.append({"tool": "clang-tidy", "reason": "skipped by user"})
+    # rust-analyzer
+    if "rust-analyzer" in skip:
+        skipped_tools.append({"tool": "rust-analyzer", "reason": "skipped by user"})
     elif not has_tidy:
-        skipped_tools.append({"tool": "clang-tidy", "reason": "not installed"})
+        skipped_tools.append({"tool": "rust-analyzer", "reason": "not installed"})
     elif not cc_path:
         skipped_tools.append({
-            "tool": "clang-tidy",
+            "tool": "rust-analyzer",
             "reason": "no compile_commands.json found",
         })
     else:
         findings.extend(_run_clang_tidy(files, cc_path, project_root))
 
-    # cppcheck
-    if "cppcheck" in skip:
-        skipped_tools.append({"tool": "cppcheck", "reason": "skipped by user"})
-    elif not has_cppcheck:
-        skipped_tools.append({"tool": "cppcheck", "reason": "not installed"})
+    # cargo clippy
+    if "cargo clippy" in skip:
+        skipped_tools.append({"tool": "cargo clippy", "reason": "skipped by user"})
+    elif not has_cargo clippy:
+        skipped_tools.append({"tool": "cargo clippy", "reason": "not installed"})
     else:
-        findings.extend(_run_cppcheck(files, project_root, cc_path))
+        findings.extend(_run_cargo clippy(files, project_root, cc_path))
 
     by_tool = defaultdict(int)
     by_severity = defaultdict(int)
@@ -244,7 +241,7 @@ def analyze(
         "files_analyzed": len(files),
         "tools_available": {
             "clang_tidy": has_tidy,
-            "cppcheck": has_cppcheck,
+            "cargo clippy": has_cargo clippy,
         },
         "compile_commands": str(cc_path) if cc_path else None,
         "findings": findings,

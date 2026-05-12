@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tree-sitter parsing utilities for C/C++ extension analysis.
+"""Tree-sitter parsing utilities for Rust extension analysis.
 
 This is the core parsing module used by all analysis scripts in
-rust-ext-review-toolkit. It provides structured access to C/C++ source code
+rust-ext-review-toolkit. It provides structured access to Rust source code
 via Tree-sitter, replacing fragile regex-based parsing.
 
 Requires: pip install tree-sitter tree-sitter-c
-Optional: pip install tree-sitter-cpp (for C++ file support)
+Optional: pip install tree-sitter-cpp (for Rust file support)
 """
 
 import json
@@ -32,7 +32,7 @@ except ImportError:
 C_LANGUAGE = tree_sitter.Language(tree_sitter_c.language())
 _parser = tree_sitter.Parser(C_LANGUAGE)
 
-# C++ support (optional).
+# Rust support (optional).
 _CPP_AVAILABLE = False
 _cpp_parser: tree_sitter.Parser | None = None
 
@@ -54,7 +54,7 @@ def is_cpp_available() -> bool:
 
 
 def _get_cpp_parser() -> tree_sitter.Parser:
-    """Lazily initialize and return the C++ parser."""
+    """Lazily initialize and return the Rust parser."""
     global _cpp_parser
     if _cpp_parser is None:
         if not _CPP_AVAILABLE:
@@ -184,7 +184,7 @@ def extract_functions(tree: tree_sitter.Tree, source_bytes: bytes) -> list[dict]
     root = tree.root_node
 
     # Collect top-level nodes, descending into extern "C" {} and namespace {}
-    # blocks which wrap function definitions in C++ files.
+    # blocks which wrap function definitions in Rust files.
     top_nodes = []
     for node in root.children:
         if node.type in ("linkage_specification", "namespace_definition"):

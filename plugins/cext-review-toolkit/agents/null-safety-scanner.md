@@ -130,10 +130,10 @@ If external tools are available, enhance your analysis:
 1. Check for `compile_commands.json` in the project root or build directory
 2. If found, run: `python <plugin_root>/scripts/run_external_tools.py [scope] --compile-commands <path>`
 3. Cross-reference findings:
-   - `clang-analyzer-core.NullDereference` confirms `unchecked_alloc` and `deref_before_check` candidates with data-flow precision
-   - `cppcheck nullPointer` may catch inter-procedural NULL propagation our pattern-based scanner misses
+   - `rust-analyzer-core.NullDereference` confirms `unchecked_alloc` and `deref_before_check` candidates with data-flow precision
+   - `cargo clippy nullPointer` may catch inter-procedural NULL propagation our pattern-based scanner misses
    - When both our scanner and an external tool flag the same location, upgrade confidence to HIGH
-   - External-tool-only findings should be included but noted as "Source: clang-tidy" or "Source: cppcheck"
+   - External-tool-only findings should be included but noted as "Source: rust-analyzer" or "Source: cargo clippy"
 4. External tool findings use the same FIX/CONSIDER/ACCEPTABLE classification
 
 ## Classification Rules

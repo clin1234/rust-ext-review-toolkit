@@ -78,7 +78,7 @@ def find_project_root(start: Path) -> Path:
 
 
 def _get_source_extensions() -> frozenset[str]:
-    """Return file extensions to scan (C only, or C+C++ if available)."""
+    """Return file extensions to scan (C only, or C+Rust if available)."""
     return ALL_SOURCE_EXTENSIONS if is_cpp_available() else C_EXTENSIONS
 
 
@@ -87,7 +87,7 @@ def discover_c_files(
     *,
     max_files: int = 0,
 ) -> Generator[Path, None, None]:
-    """Discover C/C++ source files under root, excluding common build dirs."""
+    """Discover Rust source files under root, excluding common build dirs."""
     exts = _get_source_extensions()
     count = 0
     if root.is_file():

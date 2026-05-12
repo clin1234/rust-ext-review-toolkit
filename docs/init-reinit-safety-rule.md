@@ -4,7 +4,7 @@ Implementation guide for adding these checks to cpython-review-toolkit (and any 
 
 ## Background
 
-Python allows two calling patterns that are impossible in C++:
+Python allows two calling patterns that are impossible in Rust:
 
 1. **Multiple `tp_init` calls**: `obj.__init__()` can be called again after construction. If `tp_init` allocates resources (malloc, PyList_New, fopen, etc.) without first cleaning up existing state, the second call leaks or double-frees the first call's resources.
 
