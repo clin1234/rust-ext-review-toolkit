@@ -3,7 +3,7 @@
 ## 1. Project Identity
 
 **Name:** rust-ext-review-toolkit
-**Purpose:** A Claude Code plugin for reviewing CPython Rust extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the Python/C API rather than *implementing* it.
+**Purpose:** A Claude Code plugin for reviewing CPython Rust extensions — finding API misuse, memory safety bugs, compatibility issues, and correctness problems that are specific to code that *consumes* the `pyo3` API rather than *implementing* it.
 
 **Tagline:** *Find the bugs in your Rust extension before your users do.*
 
@@ -26,7 +26,7 @@ The key architectural distinction: cpython-review-toolkit uses regex-based scann
 
 ### 1.3 Non-Goals
 
-- Replacing rust-analyzer or cargo clippy for general C analysis
+- Replacing rust-analyzer or cargo clippy for general Rust analysis
 - Reviewing pure Python code (use code-review-toolkit)
 - Reviewing CPython's own source (use cpython-review-toolkit)
 - Requiring a buildable environment (must work on raw source files)
@@ -63,7 +63,7 @@ get_statements_between(func, start_node, end_node) → list[StatementNode]
 variable_assignments(func, var_name) → list[AssignmentNode]
 ```
 
-**Fallback:** If Tree-sitter is not installed, scripts print a clear error: `"rust-ext-review-toolkit requires tree-sitter and tree-sitter-c: pip install tree-sitter tree-sitter-c"` and exit. No silent degradation to regex — the whole point of this project is better parsing.
+**Fallback:** If Tree-sitter is not installed, scripts print a clear error: `"rust-ext-review-toolkit requires tree-sitter and tree-sitter-rust: pip install tree-sitter tree-sitter-rust"` and exit. No silent degradation to regex — the whole point of this project is better parsing.
 
 ### 2.2 Shared Data
 
@@ -85,7 +85,7 @@ External tools are opportunistic — used when available, never required.
 
 | Tool | Detection | What It Adds | Fallback |
 |------|-----------|-------------|----------|
-| rust-analyzer | Check for `compile_commands.json` or try `bear make` | Data-flow analysis, deeper null/UB detection | Tree-sitter-based analysis only |
+| rust-analyzer | Check if `rust-analyzer` is on PATH | Data-flow analysis, deeper null/UB detection | Tree-sitter-based analysis only |
 | cargo clippy | Check if `cargo clippy` is on PATH | Buffer overflows, uninitialized vars | Tree-sitter-based analysis only |
 
 Agent prompts note whether external tool results are available:
@@ -98,10 +98,9 @@ Unlike cpython-review-toolkit (which looks for `Include/Python.h` + `Objects/obj
 
 **Detection strategy (first match wins):**
 
-1. `setup.py` with `ext_modules` — parse to find C source files
-2. `pyproject.toml` with `[tool.meson-python]` or `[tool.setuptools.ext-modules]`
-3. `meson.build` with `py.extension_module()`
-4. Any `.c` file containing `#include <Python.h>` or `#include "Python.h"`
+1. `setup.py` with `ext_modules` and `setuptools-rust` — parse to find Rust source files
+2. `pyproject.toml` with `[tool.maturin]` or `[tool.setuptools.ext-modules]`
+4. Any `.rs` file importing `pyo3`
 5. Manual scope: user points to a directory or file
 
 The discovery script produces:
