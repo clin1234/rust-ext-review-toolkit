@@ -1,8 +1,8 @@
 {
   "name": "rust-ext-review-toolkit",
-  "version": "0.1.2",
+  "version": "0.0.1",
   "description": "CPython Rust extension analysis agents: refcount auditing (with borrowed-ref-across-callback detection), error path analysis, NULL safety scanning, GIL discipline checking, module state validation, type slot correctness, stable ABI compliance, version compatibility scanning, PyErr_Clear auditing, resource lifecycle tracking, Python parity checking, complexity measurement, and git history analysis. Tree-sitter-powered Rust parsing with optional rust-analyzer/cargo clippy integration.",
   "author": {
-    "name": "Danzin"
+    "name": "Charlie Lin"
   }
 }
