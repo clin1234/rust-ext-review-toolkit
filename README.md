@@ -1,8 +1,8 @@
 # Rust extension Review Toolkit
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions -- finding API misuse, memory safety bugs, compatibility issues, and correctness problems specific to code that *consumes* the Python/C API.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions -- finding API misuse, memory safety bugs, compatibility issues, and correctness problems specific to code that *consumes* the `pyo3` API.
 
-Built for the specific concerns of Rust extension authors -- reference counting from the caller's perspective, borrowed reference lifetimes, module state management, type slot correctness, stable ABI compliance, and version compatibility -- not general-purpose C analysis.
+Built for the specific concerns of Rust extension authors -- reference counting from the caller's perspective, borrowed reference lifetimes, module state management, type slot correctness, stable ABI compliance, and version compatibility -- not general-purpose Rust analysis.
 
 ## Why a Separate Tool?
 
@@ -42,7 +42,7 @@ claude --plugin-dir rust-ext-review-toolkit/plugins/rust-ext-review-toolkit
 
 - **Claude Code** installed and running
 - **Python 3.10+** for the analysis scripts
-- **tree-sitter** and **tree-sitter-c**: `pip install tree-sitter tree-sitter-c`
+- **tree-sitter** and **tree-sitter-rust**: `pip install tree-sitter tree-sitter-rust`
 
 ## Quick Start
 
@@ -66,7 +66,7 @@ Start with `health` for a quick overview, then `hotspots` to find the highest-im
 | Agent | What It Finds | Script |
 |-------|--------------|--------|
 | **refcount-auditor** | Leaked refs, borrowed-ref-across-callback, stolen-ref misuse, missing Py_CLEAR | `scan_refcounts.py` |
-| **error-path-analyzer** | Missing NULL checks, exception clobbering, return-without-exception | `scan_error_paths.py` |
+| **error-path-analyzer** | Missing nullptr checks, exception clobbering, return-without-exception | `scan_error_paths.py` |
 | **null-safety-scanner** | Unchecked allocations, deref-before-check | `scan_null_checks.py` |
 | **gil-discipline-checker** | GIL released during Python API, blocking I/O with GIL, callback GIL issues, free-threading readiness | `scan_gil_usage.py` |
 
@@ -104,7 +104,7 @@ Start with `health` for a quick overview, then `hotspots` to find the highest-im
 
 ### Tree-sitter Parsing
 
-Unlike cpython-review-toolkit (regex-based), this toolkit uses Tree-sitter for C parsing. This enables analysis that regex fundamentally cannot do:
+Unlike cpython-review-toolkit (regex-based), this toolkit uses Tree-sitter for Rust parsing. This enables analysis that regex fundamentally cannot do:
 
 - **Borrowed reference lifetime tracking**: Detect when a borrowed ref survives across a call back into Python -- the #1 extension-specific bug pattern
 - **Type slot cross-referencing**: Connect a PyTypeObject/PyType_Spec to its struct definition and slot function implementations
@@ -113,11 +113,9 @@ Unlike cpython-review-toolkit (regex-based), this toolkit uses Tree-sitter for C
 ### Extension Discovery
 
 The toolkit auto-detects Rust extensions in diverse project layouts:
-- `setup.py` with `ext_modules`
-- `pyproject.toml` with setuptools, meson-python, or scikit-build
-- `meson.build` with `py.extension_module()`
-- `CMakeLists.txt` with pybind11 or Python3 library targets
-- Fallback: any `.c` file containing `#include <Python.h>`
+- `setup.py` with `ext_modules` and `setuptools-rust`
+- `pyproject.toml` with setuptools or maturin
+- Fallback: any `.rs` file importing the `pyo3` module
 
 ### Classification System
 
@@ -133,8 +131,7 @@ Every finding is tagged:
 ### External Tool Integration (Optional)
 
 If available, the toolkit can use:
-- **rust-analyzer** with `compile_commands.json` for deeper data-flow analysis
-- **cargo clippy** for buffer overflow and uninitialized variable detection
+- **rust-analyze** and **cargo clippy** for deeper data-flow analysis, buffer overflow and uninitialized variable detection
 
 These are never required -- the Tree-sitter-based analysis is the baseline.
 
@@ -202,9 +199,9 @@ These are never required -- the Tree-sitter-based analysis is the baseline.
 | **Scripts** | 8 | 7 | 10 |
 | **Unique value** | Test coverage, architecture | GIL, PEP 7, include graph | Module state, type slots, ABI, migrate |
 
-## Author
+## Authors
 
-Danzin
+Charlie Lin, Danzin (original)
 
 ## License
 
