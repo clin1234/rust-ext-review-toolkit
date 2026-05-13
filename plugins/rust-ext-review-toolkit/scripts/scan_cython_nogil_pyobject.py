@@ -115,7 +115,7 @@ def determining_gil_scope(node, source: bytes) -> str | None:
 
 
 def is_fstring(node, source: bytes) -> bool:
-    """tree-sitter-rustython represents f-strings as a `string` node whose
+    """tree-sitter-cython represents f-strings as a `string` node whose
     `string_start` child has the `f` (or `F`/`fr`/`rf`) prefix. There is no
     distinct `joined_str` node.
     """

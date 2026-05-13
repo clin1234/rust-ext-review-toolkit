@@ -1,6 +1,6 @@
 """Tests for scan_cython_cinit_candidates.py — Q4 __cinit__/__init__ reinit-leak.
 
-Requires tree-sitter-rustython (clin1234 fork).
+Requires tree-sitter-cython (devdanzin fork).
 """
 
 import unittest

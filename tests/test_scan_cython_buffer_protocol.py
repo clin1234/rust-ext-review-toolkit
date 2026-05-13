@@ -1,6 +1,6 @@
 """Tests for scan_cython_buffer_protocol.py — Q2 PyObject_GetBuffer pairing.
 
-Requires tree-sitter-rustython (clin1234 fork).
+Requires tree-sitter-cython (devdanzin fork).
 """
 
 import unittest
