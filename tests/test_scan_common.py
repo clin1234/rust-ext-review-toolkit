@@ -15,7 +15,7 @@ sys.path.insert(
 )
 
 import tree_sitter
-import tree_sitter_c
+import tree_sitter_rust
 
 from scan_common import (
     deduplicate_findings,
@@ -27,7 +27,7 @@ from scan_common import (
 )
 
 
-_C_LANG = tree_sitter.Language(tree_sitter_c.language())
+_C_LANG = tree_sitter.Language(tree_sitter_rust.language())
 _C_PARSER = tree_sitter.Parser(_C_LANG)
 
 

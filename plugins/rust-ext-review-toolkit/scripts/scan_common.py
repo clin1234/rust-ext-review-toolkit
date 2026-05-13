@@ -12,7 +12,7 @@ from pathlib import Path
 
 try:
     import tree_sitter
-    import tree_sitter_c
+    import tree_sitter_rust
 except ImportError:
     print(
         json.dumps(

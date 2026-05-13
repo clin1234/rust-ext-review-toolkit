@@ -334,7 +334,7 @@ Every script begins with:
 ```python
 try:
     import tree_sitter
-    import tree_sitter_c
+    import tree_sitter_rust
 except ImportError:
     print(json.dumps({
         "error": "tree-sitter not installed",
