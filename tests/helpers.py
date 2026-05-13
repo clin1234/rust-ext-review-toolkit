@@ -75,7 +75,7 @@ class TempExtension:
             shutil.rmtree(self._tmpdir, ignore_errors=True)
 
 
-# Common C code fixtures for testing
+# Common Rust code fixtures for testing
 
 MINIMAL_EXTENSION = """\
 #include <Python.h>

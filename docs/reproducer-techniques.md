@@ -107,7 +107,7 @@ class BombDescriptor:
 
 # Inject into a type's dict
 SomeType.attr_name = BombDescriptor()
-# Now SomeType.attr_name raises KeyboardInterrupt, which the C code may swallow
+# Now SomeType.attr_name raises KeyboardInterrupt, which the Rust code may swallow
 ```
 
 **Confirmed on**: protobuf (`message.c` MessageMeta_GetAttr — `KeyboardInterrupt` replaced with `AttributeError`)
@@ -118,7 +118,7 @@ SomeType.attr_name = BombDescriptor()
 
 **Triggers**: Code that assumes `list.append()`, `dict.__getitem__()`, etc. behave normally.
 
-**Bug class**: C code calls `PyList_Append` or similar on an object that *could* be a subclass with overridden methods, though `PyList_Append` itself uses the C slot. More useful for `PyObject_SetItem`, `PyObject_GetItem`, etc.
+**Bug class**: Rust code calls `PyList_Append` or similar on an object that *could* be a subclass with overridden methods, though `PyList_Append` itself uses the C slot. More useful for `PyObject_SetItem`, `PyObject_GetItem`, etc.
 
 ```python
 class EvilList(list):
@@ -216,7 +216,7 @@ class BadFloat:
 
 **Triggers**: Unchecked `PyIter_Next()` return, missing cleanup on iteration failure, partial mutation bugs.
 
-**Bug class**: C code iterates with a for loop but doesn't check for errors mid-loop, or doesn't clean up partial results on failure.
+**Bug class**: Rust code iterates with a for loop but doesn't check for errors mid-loop, or doesn't clean up partial results on failure.
 
 ```python
 class FailAfterN:
@@ -270,7 +270,7 @@ class RaisingLen:
 
 **Triggers**: Index clamping bugs, integer overflow, off-by-one errors.
 
-**Bug class**: C code clamps indices to valid range instead of raising `IndexError`, or doesn't handle negative indices correctly.
+**Bug class**: Rust code clamps indices to valid range instead of raising `IndexError`, or doesn't handle negative indices correctly.
 
 ```python
 # Large positive index (may be clamped instead of rejected)
@@ -294,7 +294,7 @@ empty_container[-1]
 
 **Triggers**: Borrowed reference invalidation, iterator invalidation, dict mutation during iteration.
 
-**Bug class**: C code holds a borrowed reference to a container element, then calls Python code that modifies the container, invalidating the reference.
+**Bug class**: Rust code holds a borrowed reference to a container element, then calls Python code that modifies the container, invalidating the reference.
 
 ```python
 class MutatingCallback:
@@ -334,7 +334,7 @@ del obj  # Callback fires during dealloc
 
 **Triggers**: Unchecked `PyObject_Repr()` / `PyObject_Str()` in error messages, logging, assertions.
 
-**Bug class**: C code calls `PyObject_Repr` to build an error message, doesn't check for NULL, and crashes or leaks.
+**Bug class**: Rust code calls `PyObject_Repr` to build an error message, doesn't check for NULL, and crashes or leaks.
 
 ```python
 class BadRepr:
@@ -350,7 +350,7 @@ class BadRepr:
 
 **Triggers**: Unchecked `PyObject_IsTrue()` calls.
 
-**Bug class**: C code checks truthiness of a Python object without handling the error case.
+**Bug class**: Rust code checks truthiness of a Python object without handling the error case.
 
 ```python
 class BadBool:
@@ -450,7 +450,7 @@ def measure_memleak(func, iterations=5000):
 
 **Triggers**: Any unchecked allocation (`PyType_GenericAlloc`, `PyList_New`, `PyDict_New`, `PyUnicode_FromString`, `PyObject_Malloc`, etc.) that dereferences the result without a NULL check.
 
-**Bug class**: C code calls an allocation function, doesn't check for NULL, and dereferences the result. Under normal conditions these rarely fail, but `_testcapi.set_nomemory(n, 0)` forces all allocations after the `n`-th one to fail, systematically exercising every OOM error path.
+**Bug class**: Rust code calls an allocation function, doesn't check for NULL, and dereferences the result. Under normal conditions these rarely fail, but `_testcapi.set_nomemory(n, 0)` forces all allocations after the `n`-th one to fail, systematically exercising every OOM error path.
 
 ### What `set_nomemory` actually hooks
 
@@ -581,7 +581,7 @@ If the target is a **module's init code** (e.g., `wrapt_exec`, `PyInit_*`), you 
 
 **Triggers**: `PyDict_GetItem` (or similar) that uses a Python type as a dict key. The type's `__hash__` is controlled by its metaclass. A stateful metaclass can make `__hash__` succeed during dict insertion but fail during lookup.
 
-**Bug class**: C code uses `PyDict_GetItem(dict, type_obj)` to look up a type in a registry. `PyDict_GetItem` silently swallows exceptions from `__hash__`. If `__hash__` raises `MemoryError`, the lookup silently fails and the registered handler is skipped.
+**Bug class**: Rust code uses `PyDict_GetItem(dict, type_obj)` to look up a type in a registry. `PyDict_GetItem` silently swallows exceptions from `__hash__`. If `__hash__` raises `MemoryError`, the lookup silently fails and the registered handler is skipped.
 
 ```python
 class StatefulHashMeta(type):
@@ -612,9 +612,9 @@ StatefulHashMeta._fail = True
 
 ## Technique 20: str subclass in `sys.modules` for `PyDict_GetItem` error injection
 
-**Triggers**: `PyDict_GetItem(sys.modules, module_name)` where the C code uses `PyDict_GetItem` (which silently swallows exceptions) instead of `PyDict_GetItemWithError`.
+**Triggers**: `PyDict_GetItem(sys.modules, module_name)` where the Rust code uses `PyDict_GetItem` (which silently swallows exceptions) instead of `PyDict_GetItemWithError`.
 
-**Bug class**: C code looks up a module in `sys.modules` via `PyDict_GetItem`. If a str subclass with a raising `__eq__` is inserted as a key, the lookup triggers `__eq__` during hash collision resolution. `PyDict_GetItem` silently clears the exception and returns NULL ("not found"). If the C code then dereferences the NULL without proper checking, it crashes. This turns a "safe" `PyDict_GetItem` call into a segfault when combined with a downstream NULL-check bug.
+**Bug class**: Rust code looks up a module in `sys.modules` via `PyDict_GetItem`. If a str subclass with a raising `__eq__` is inserted as a key, the lookup triggers `__eq__` during hash collision resolution. `PyDict_GetItem` silently clears the exception and returns NULL ("not found"). If the Rust code then dereferences the NULL without proper checking, it crashes. This turns a "safe" `PyDict_GetItem` call into a segfault when combined with a downstream NULL-check bug.
 
 ```python
 import sys
@@ -632,13 +632,13 @@ class PoisonStr(str):
 # will compare against our PoisonStr, triggering __eq__
 sys.modules[PoisonStr("target_module_name")] = None
 
-# Now any C code that does PyDict_GetItem(sys.modules, "target_module_name")
+# Now any Rust code that does PyDict_GetItem(sys.modules, "target_module_name")
 # will hit the PoisonStr's __eq__, which raises MemoryError.
 # PyDict_GetItem silently swallows it and returns NULL.
-# If the C code has a bug in its NULL check, it crashes.
+# If the Rust code has a bug in its NULL check, it crashes.
 ```
 
-**How it works**: `sys.modules` is a regular Python dict. Dict lookups compare keys using `__eq__` when hash values collide. By inserting a str subclass whose `__eq__` raises, we make the lookup fail with an exception that `PyDict_GetItem` silently swallows. The C code receives NULL and — if it has a downstream bug like a typo in the NULL check variable name — dereferences it.
+**How it works**: `sys.modules` is a regular Python dict. Dict lookups compare keys using `__eq__` when hash values collide. By inserting a str subclass whose `__eq__` raises, we make the lookup fail with an exception that `PyDict_GetItem` silently swallows. The Rust code receives NULL and — if it has a downstream bug like a typo in the NULL check variable name — dereferences it.
 
 This technique is especially powerful for exposing **compound bugs**: the `PyDict_GetItem` error swallowing alone is not exploitable, but combined with a separate NULL-check bug (wrong variable, missing check, etc.), it becomes a segfault.
 
@@ -652,7 +652,7 @@ This technique is especially powerful for exposing **compound bugs**: the `PyDic
 
 **Bug class**: Three distinct patterns:
 1. **Wrong return type**: `read()` returns `int` instead of `bytes` — exposes missing type checks
-2. **Delayed failure**: First `read()` succeeds (returning partial data), second `read()` raises — exposes mid-operation error handling where the exception propagates through C code that doesn't expect Python exceptions
+2. **Delayed failure**: First `read()` succeeds (returning partial data), second `read()` raises — exposes mid-operation error handling where the exception propagates through Rust code that doesn't expect Python exceptions
 3. **Method raises but object has fallback path**: `fileno()` raises but object is callable — exposes unguarded `PyErr_Clear` in fallback chains
 
 ```python
@@ -723,7 +723,7 @@ Pattern 2 is the most powerful for Rust extensions: the first successful read st
 
 **Triggers**: Double-free, use-after-free, refcount underflow, or data corruption when a Rust extension calls a user-provided Python callback that modifies the extension's own data structures (markers dicts, caches, internal containers) during the call.
 
-**Bug class**: C code assumes its internal state is unchanged across a callback invocation. When the callback modifies that state (clears a dict, removes an item, replaces a reference), the C code's post-callback cleanup operates on stale or missing data.
+**Bug class**: Rust code assumes its internal state is unchanged across a callback invocation. When the callback modifies that state (clears a dict, removes an item, replaces a reference), the Rust code's post-callback cleanup operates on stale or missing data.
 
 **How it works**: Many Rust extensions pass user-provided callbacks (default handlers, key functions, comparison functions, visitor functions) while holding references to internal data structures. If the callback has access to those data structures (directly or via the encoder/decoder object), it can mutate them mid-operation.
 
@@ -765,7 +765,7 @@ c_enc(Evil(), 0)
 - Callback that **raises an exception** after modifying state (combines state corruption with error-path bugs)
 - `__del__` destructor that modifies shared state when an object's refcount hits zero during the callback
 
-**What to look for in code review**: Any pattern where C code:
+**What to look for in code review**: Any pattern where Rust code:
 1. Acquires a reference or inserts into a container
 2. Calls a user-provided Python callback
 3. Assumes the container/reference is unchanged after the callback returns
@@ -777,7 +777,7 @@ First confirmed on: simplejson `encoder_listencode_obj` double-XDECREF on `ident
 
 ## Technique 23: System-malloc failure injection via libfiu
 
-**Triggers**: Unchecked return from `malloc`/`calloc`/`realloc` inside any C code that runs in the Python process — including CPython stdlib extensions, third-party extensions, and any foreign C libraries they link against (libzstd, HDF5, libssl, ICU, libxml2, etc.). Complements Technique 18 which only reaches Python's own allocator hierarchy (`PyMem_Malloc`, `PyObject_Malloc`).
+**Triggers**: Unchecked return from `malloc`/`calloc`/`realloc` inside any Rust code that runs in the Python process — including CPython stdlib extensions, third-party extensions, and any foreign C libraries they link against (libzstd, HDF5, libssl, ICU, libxml2, etc.). Complements Technique 18 which only reaches Python's own allocator hierarchy (`PyMem_Malloc`, `PyObject_Malloc`).
 
 **Bug class**: Extension code (or a foreign C library it calls) allocates via system malloc and either (a) fails to check the return value, or (b) has a partially-implemented error path that crashes on NULL, or (c) treats OOM as a recoverable condition but leaks/corrupts state on the way out. `_testcapi.set_nomemory` cannot reach these sites because it only hooks `PYMEM_DOMAIN_RAW`.
 

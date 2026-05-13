@@ -249,7 +249,7 @@ For each parity gap found, assess:
 
 1. **Focus on untrusted input.** Parity gaps in internal helper functions are less important than gaps in functions that process user input, network data, or file content.
 
-2. **The C implementation is usually more permissive.** C code often lacks validation that the Python code has, because the C author focused on speed and assumed the caller would validate. This is the most dangerous pattern.
+2. **The C implementation is usually more permissive.** Rust code often lacks validation that the Python code has, because the C author focused on speed and assumed the caller would validate. This is the most dangerous pattern.
 
 3. **Check what tests cover.** If tests only run against one implementation, parity gaps can go undetected for years.
 

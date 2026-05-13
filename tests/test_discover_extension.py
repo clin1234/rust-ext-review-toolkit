@@ -187,7 +187,7 @@ class TestCodeGenerationDetection(unittest.TestCase):
     """Test code generation auto-detection."""
 
     def test_hand_written_detection(self):
-        """Hand-written C code detected as hand_written."""
+        """Hand-written Rust code detected as hand_written."""
         with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
             result = discover.discover(str(root))
             self.assertEqual(result["code_generation"], "hand_written")

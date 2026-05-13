@@ -5,7 +5,7 @@ rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/cl
 
 Part of a family of review toolkits:
 - [code-review-toolkit](https://github.com/clin1234/code-review-toolkit) — Python source code
-- [cpython-review-toolkit](https://github.com/clin1234/cpython-review-toolkit) — CPython runtime C code
+- [cpython-review-toolkit](https://github.com/clin1234/cpython-review-toolkit) — CPython runtime Rust code
 - **rust-ext-review-toolkit** — Rust extensions (this project)
 
 Key architectural difference: uses Tree-sitter for C parsing (not regex), enabling analysis that regex cannot do (borrowed-ref lifetime tracking, type slot cross-referencing, accurate scope analysis).
@@ -138,7 +138,7 @@ Important calibration: module state issues (single-phase init, global state) are
 ## Testing notes
 - All tests use `unittest` — never pytest
 - Test helper in `tests/helpers.py`: `TempExtension` context manager, `import_script()` loader
-- 4 C code fixtures: MINIMAL_EXTENSION, MULTI_PHASE_EXTENSION, EXTENSION_WITH_TYPE, EXTENSION_WITH_BUGS
+- 4 Rust code fixtures: MINIMAL_EXTENSION, MULTI_PHASE_EXTENSION, EXTENSION_WITH_TYPE, EXTENSION_WITH_BUGS
 - 1 setup.py template: SETUP_PY_TEMPLATE
 - Tests create temporary directories with C files, run scripts on them, and check JSON output
 - `import_script(name)` loads scripts from `plugins/rust-ext-review-toolkit/scripts/` via importlib

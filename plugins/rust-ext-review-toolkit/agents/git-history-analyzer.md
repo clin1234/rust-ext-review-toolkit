@@ -59,7 +59,7 @@ Before searching for similar bugs elsewhere, check whether each fix is itself co
 
 2. **Check all code paths in the fixed function**:
    - Does the fix cover all error branches? Many extension functions have multiple `goto error` / `goto done` / `goto cleanup` labels — a fix might patch one branch but miss another.
-   - Does the fix cover all `#ifdef` platform variants? A fix to the Unix code path may leave the `#ifdef MS_WINDOWS` (or `#ifdef Py_GIL_DISABLED`) path unfixed, or vice versa.
+   - Does the fix cover all `#ifdef` platform variants? A fix to the Unix code path may leave the `#ifdef MS_WINDOWS` (or `#[cfg(Py_GIL_DISABLED)]`) path unfixed, or vice versa.
    - Does the fix cover all affected variables? A refcount leak fix for `var_a` may leave `var_b` with the same leak pattern in the same function.
 
 3. **Check root cause vs. symptom**: Did the fix address the root cause, or did it patch the symptom? For example, adding a NULL check after an API call that shouldn't have returned NULL in the first place — was the real bug in the caller or the callee?

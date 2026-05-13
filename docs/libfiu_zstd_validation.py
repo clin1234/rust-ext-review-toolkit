@@ -8,7 +8,7 @@ compressor.c:354.
 
 ZSTD_createCCtx() internally calls libc malloc to allocate its compression
 context. If libfiu's posix preload successfully intercepts that malloc, the
-function returns NULL, and CPython's C code raises ZstdError with message
+function returns NULL, and CPython's Rust code raises ZstdError with message
 "Unable to create ZSTD_CCtx instance." — that's the success case for this
 test.
 

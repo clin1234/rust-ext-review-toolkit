@@ -12,7 +12,7 @@
 | Project | Target | Parsing | Key Concern |
 |---------|--------|---------|-------------|
 | code-review-toolkit | Python source | `ast` module | Logic errors, dead code, test gaps |
-| cpython-review-toolkit | CPython runtime C code | Regex (PEP 7) | Refcount leaks, GIL, NULL safety |
+| cpython-review-toolkit | CPython runtime Rust code | Regex (PEP 7) | Refcount leaks, GIL, NULL safety |
 | **rust-ext-review-toolkit** | **Rust extensions** | **Tree-sitter** | **API misuse, borrowed ref lifetime, module state, type slots, ABI compliance** |
 
 The key architectural distinction: cpython-review-toolkit uses regex-based scanning because PEP 7 code is extremely regular. Rust extension code is not — it has wildly varying styles, heavy macro usage, and unconventional formatting. Tree-sitter absorbs that variance because it parses the actual C grammar, giving agents structured syntax trees instead of fragile regex matches.

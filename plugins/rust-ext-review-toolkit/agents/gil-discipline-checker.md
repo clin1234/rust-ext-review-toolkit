@@ -172,7 +172,7 @@ If external tools are available:
 
 5. **Free-threading concerns are POLICY unless they cause crashes without the GIL.** The free-threaded build is opt-in and experimental. Findings should inform the developer, not demand immediate action.
 
-6. **Check for `#ifdef Py_GIL_DISABLED` guards.** Modern extensions may have separate code paths for free-threaded Python. Verify that both paths are correct.
+6. **Check for `#[cfg(Py_GIL_DISABLED)]` guards.** Modern extensions may have separate code paths for free-threaded Python. Verify that both paths are correct.
 
 7. **Report at most 20 findings.** Prioritize correctness issues (FIX) over performance (CONSIDER) over policy (POLICY).
 

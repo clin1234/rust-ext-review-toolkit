@@ -191,7 +191,7 @@ After all findings, include a summary:
 
 4. **pythoncapi-compat can help bridge versions.** The `pythoncapi_compat.h` header provides backports of newer limited API functions to older Python versions. Recommend it when the extension needs a newer API but targets older versions.
 
-5. **Check the build system, not just the code.** Even if the C code is limited API compliant, the build system must also be configured correctly (`py_limited_api=True` in setuptools, `limited_api=X` in meson).
+5. **Check the build system, not just the code.** Even if the Rust code is limited API compliant, the build system must also be configured correctly (`py_limited_api=True` in setuptools, `limited_api=X` in meson).
 
 6. **The limited API version sets the floor.** If `Py_LIMITED_API = 0x03090000`, the extension cannot use ANY API added in 3.10+. Verify every API call against the version table.
 
