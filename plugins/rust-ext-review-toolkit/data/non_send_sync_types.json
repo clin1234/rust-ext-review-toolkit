@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "_comment": "Types that do not satisfy Send and/or Sync. Used by pyclass-traits-checker: since PyO3 0.23 a #[pyclass] requires Send + Sync (before 0.23, only Send). A field of one of these types makes the struct fail the bound unless #[pyclass(unsendable)] is set. `send`/`sync` record which bound the type itself breaks; container types (RefCell, Cell) are Send when their contents are Send but are never Sync.",
+  "types": [
+    {
+      "path": "std::rc::Rc",
+      "aliases": ["rc::Rc", "Rc"],
+      "send": false,
+      "sync": false,
+      "note": "Non-atomic reference count; use std::sync::Arc for a shareable handle."
+    },
+    {
+      "path": "std::rc::Weak",
+      "aliases": ["rc::Weak"],
+      "send": false,
+      "sync": false,
+      "note": "Weak counterpart of Rc."
+    },
+    {
+      "path": "std::cell::RefCell",
+      "aliases": ["cell::RefCell", "RefCell"],
+      "send": true,
+      "sync": false,
+      "note": "Send if T: Send, but never Sync. For shared interior mutability use Mutex/RwLock."
+    },
+    {
+      "path": "std::cell::Cell",
+      "aliases": ["cell::Cell", "Cell"],
+      "send": true,
+      "sync": false
+    },
+    {
+      "path": "std::cell::UnsafeCell",
+      "aliases": ["cell::UnsafeCell", "UnsafeCell"],
+      "send": true,
+      "sync": false
+    },
+    {
+      "path": "std::ptr::NonNull",
+      "aliases": ["ptr::NonNull", "NonNull"],
+      "send": false,
+      "sync": false,
+      "note": "Raw-pointer wrapper; neither Send nor Sync by default."
+    },
+    {
+      "path": "std::sync::MutexGuard",
+      "aliases": ["sync::MutexGuard", "MutexGuard"],
+      "send": false,
+      "sync": true,
+      "note": "A held lock guard should almost never be a #[pyclass] field."
+    }
+  ],
+  "raw_pointer_patterns": ["*const ", "*mut "]
+}
