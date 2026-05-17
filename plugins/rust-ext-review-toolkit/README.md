@@ -1,64 +1,44 @@
 # rust-ext-review-toolkit (plugin)
 
-Rust extension analysis plugin for Claude Code. See the [project README](../../README.md) for full documentation.
+PyO3 Rust-extension analysis plugin for Claude Code. See the
+[project README](../../README.md) for full documentation, and
+[`CLAUDE.md`](../../CLAUDE.md) for the development guide.
 
-## Plugin Structure
+> **Status:** pre-v0.1, under active construction. `agents/`, `commands/`, and
+> `scripts/` are populated phase by phase per `IMPLEMENTATION_ROADMAP.md`.
+
+## Plugin structure
 
 ```
 rust-ext-review-toolkit/
-├── .claude-plugin/
-│   └── plugin.json
-├── agents/
-│   ├── refcount-auditor.md
-│   ├── error-path-analyzer.md
-│   ├── null-safety-scanner.md
-│   ├── gil-discipline-checker.md
-│   ├── resource-lifecycle-checker.md
-│   ├── module-state-checker.md
-│   ├── type-slot-checker.md
-│   ├── pyerr-clear-auditor.md
-│   ├── stable-abi-checker.md
-│   ├── version-compat-scanner.md
-│   ├── parity-checker.md
-│   ├── c-complexity-analyzer.md
-│   └── git-history-analyzer.md
-├── commands/
-│   ├── explore.md
-│   ├── health.md
-│   ├── hotspots.md
-│   └── migrate.md
-├── scripts/
-│   ├── tree_sitter_utils.py
-│   ├── scan_common.py
-│   ├── discover_extension.py
-│   ├── scan_refcounts.py
-│   ├── scan_error_paths.py
-│   ├── scan_null_checks.py
-│   ├── scan_gil_usage.py
-│   ├── scan_module_state.py
-│   ├── scan_type_slots.py
-│   ├── scan_pyerr_clear.py
-│   ├── scan_resource_lifecycle.py
-│   ├── scan_version_compat.py
-│   ├── measure_c_complexity.py
-│   ├── analyze_history.py
-│   └── run_external_tools.py
-└── data/
-    ├── api_tables.json
-    ├── deprecated_apis.json
-    ├── stable_abi.json
-    ├── limited_api_headers.json
-    └── resource_pairs.json
+├── .claude-plugin/plugin.json
+├── README.md
+├── agents/        # 13 agent prompt definitions (markdown)
+├── commands/      # 4 command definitions: explore, health, hotspots, migrate
+├── scripts/       # 15 Python analysis scripts
+└── data/          # 8 JSON data files (PyO3 API tables, abi3 surface, ...)
 ```
 
-## Agents: 13
+## Agents — 13
 
-4 safety-critical (refcount, error path, null safety, GIL), 1 resource lifecycle, 3 extension-specific (module state, type slots, PyErr_Clear), 2 compatibility (stable ABI, version compat), 1 Python parity, 1 complexity, 1 history.
+- **Preflight (1):** rust-codegen-mapper
+- **Safety-critical (4):** unsafe-block-auditor, pyresult-propagation-checker,
+  gil-discipline-checker, panic-safety-checker
+- **PyO3-specific (4):** pyclass-traits-checker, pyclass-protocol-checker,
+  module-init-checker, lifetime-handle-checker
+- **Compatibility (1):** pyo3-version-compat-scanner
+- **Quality & history (2):** rust-complexity-analyzer, git-history-analyzer
+- **Parity (1):** parity-checker (qualitative, no script)
 
-## Scripts: 15
+## Scripts — 15
 
-11 Tree-sitter-powered analysis scripts + 1 extension discovery script + 1 external tools integration + 1 shared parsing module + 1 shared utilities module. All output JSON to stdout.
+`rust_ts_utils.py` (Tree-sitter-rust core) + `scan_common.py` (shared utilities)
++ `discover_rust_ext.py` (crate discovery) + 11 analysis scripts + the external
+tools integration. Every analysis script exposes
+`analyze(target, *, max_files=0) -> dict` and outputs JSON to stdout.
 
-## Data: 5 JSON files
+## Data — 8 JSON files
 
-API reference tables, deprecated API list, stable ABI function list, limited API header list, resource allocation/free pairs.
+PyO3 API tables and version matrix, the abi3-compatible API surface, the
+non-Send/Sync type list, panic-prone stdlib APIs, PyO3 idioms, and the vendored
+CPython stable-ABI / limited-API-header lists.

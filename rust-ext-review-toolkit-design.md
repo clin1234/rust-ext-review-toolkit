@@ -7,7 +7,7 @@
 
 **Tagline:** *Find the soundness bugs in your Rust extension before your users do.*
 
-**First-cut scope:** PyO3 only. Other binding ecosystems (legacy `rust-cpython`, `pyo3-async-runtimes` add-ons, `cffi`-style raw FFI crates) are out of scope for v0.1 and may be added later as separate playbooks (see §3.7).
+**First-cut scope:** PyO3 only. Other binding ecosystems (legacy `rust-cpython`, `pyo3-async-runtimes` add-ons, `cffi`-style raw FFI crates) are out of scope for v0.1 and may be added later (see §10, Open Questions and Future Work).
 
 ### 1.1 Relationship to Sibling Projects
 
@@ -30,14 +30,14 @@ The core lesson from cext-review-toolkit transfers: use Tree-sitter because Rust
 
 **PyO3 does *not* prevent** (so we *do* need scanners for):
 1. **Soundness bugs in `unsafe` blocks** — raw `pyo3-ffi` calls, `transmute`, manual buffer-protocol implementations, FFI into C libraries
-2. **`#[pyclass]` trait-bound violations** — types with non-`Send` fields (e.g. `Rc`, `RefCell`, raw pointers) without `#[pyclass(unsendable)]`; free-threading needs extra `Sync` and `frozen`
-3. **Holding `Py<T>` across `Python::allow_threads`** — releasing the GIL is fine, but binding the handle on the other side without re-acquiring is UB
+2. **`#[pyclass]` trait-bound violations** — since PyO3 0.23 a `#[pyclass]` requires `Send + Sync` (not just `Send`); types with non-`Send`/non-`Sync` fields (e.g. `Rc`, `RefCell`, `Cell`, raw pointers) need `#[pyclass(unsendable)]`. Free-threading additionally wants `frozen`.
+3. **Holding `Py<T>` across `Python::detach`** (legacy `allow_threads`) — releasing the interpreter is fine, but binding the handle on the other side without re-attaching is UB
 4. **Panic crossing the FFI boundary** — `.unwrap()` / `.expect()` in `#[pymethods]`, panic-unwind across `extern "C"` boundaries
 5. **`PyResult` propagation gaps** — `.ok()` to swallow exceptions, `let _ = result;`, missing `?` operators, exception clobbering
 6. **`Bound<'py, T>` vs `Py<T>` vs `Borrowed<'a, 'py, T>` choice** — wrong handle kind for the use case
 7. **`#[pymethods]` slot correctness** — `__traverse__`/`__clear__` gaps for GC types containing `Py<T>`, `#[new]` vs `__init__` confusion, `#[pyclass(extends = ...)]` inheritance pitfalls, `__richcmp__` semantics
-8. **PyO3 version migration debt** — `&PyAny` / `&PyDict` (pre-0.21) coexisting with `Bound<'py, T>` (0.21+), use of APIs removed in 0.23
-9. **Free-threaded Python readiness (3.13t/3.14t, PEP 703)** — `Py_mod_gil` slot, atomic operations on shared state, `#[pyclass(frozen)]` for thread-safe sharing
+8. **PyO3 version migration debt** — `&PyAny` / `&PyDict` (pre-0.21) coexisting with `Bound<'py, T>` (0.21+), and use of APIs renamed/removed across the 0.21–0.29 reshufflings (exact versions live in `data/pyo3_api_tables.json`)
+9. **Free-threaded Python readiness (3.13t/3.14t, PEP 703)** — the `gil_used` module declaration, atomic operations on shared state, `#[pyclass(frozen)]` for thread-safe sharing
 10. **`extract::<T>()` / `downcast::<T>()` misuse** — `.unwrap()` on fallible conversions, wrong target type
 
 This list is the agent inventory for v0.1.
@@ -46,7 +46,7 @@ This list is the agent inventory for v0.1.
 
 - Rust extension authors (maturin/PyO3 library maintainers)
 - Contributors reviewing PyO3 crates in third-party projects
-- Teams migrating extensions across PyO3 major versions (0.20→0.21→0.22→0.23→0.24)
+- Teams migrating extensions across PyO3 major versions (0.20 → 0.21 → … → 0.29; current stable is 0.28)
 - Developers preparing PyO3 extensions for free-threaded Python
 
 ### 1.4 Non-Goals
@@ -75,7 +75,7 @@ All scripts use `tree-sitter` with `tree-sitter-rust` as the primary parsing bac
 | `unsafe` block / `unsafe fn` detection | Single most important node type for this toolkit |
 | Type-path analysis (e.g. `Bound<'py, PyDict>`, `Py<MyClass>`) | Distinguishes handle kinds in signatures |
 | `use` statement analysis | Detects which PyO3 modules and version-gated APIs are imported |
-| Closure body extraction | `Python::with_gil(\|py\| { ... })` and `py.allow_threads(\|\| { ... })` are closures whose body we need to walk |
+| Closure body extraction | `Python::attach(\|py\| { ... })` / `py.detach(\|\| { ... })` (and the pre-0.25 names `with_gil` / `allow_threads`) are closures whose body we need to walk |
 | Trait-bound parsing (`where T: Send`) | `#[pyclass]` trait-bound analysis |
 
 **Limitations to be honest about:**
@@ -107,14 +107,14 @@ data/
 ├── pyo3_api_tables.json        # By PyO3 version: stable APIs, deprecated, removed
 ├── pyo3_version_matrix.json    # Version-to-version migration map (0.20→0.21 etc.)
 ├── abi3_compatible_apis.json   # APIs available under the abi3 feature, by Python floor
-├── non_send_types.json         # Known-non-Send types (Rc, RefCell, *const T, NonNull, ...)
+├── non_send_sync_types.json    # Types not Send and/or not Sync (Rc, RefCell, Cell, *const T, NonNull, ...)
 ├── panic_unwind_apis.json      # Stdlib APIs that panic (slice index, .unwrap, .expect, ...)
 ├── pyo3_idioms.json            # Common PyO3 patterns + their ACCEPTABLE forms
 ├── stable_abi.json             # Vendored from cext-review-toolkit (for pyo3-ffi limited-API audits)
 └── limited_api_headers.json    # Vendored from cext-review-toolkit (same purpose)
 ```
 
-`pyo3_api_tables.json` is the largest and most maintenance-intensive — PyO3 evolves rapidly and several major releases (0.21, 0.22, 0.23) reshaped the API. The format mirrors cext-review-toolkit's `deprecated_apis.json` but is keyed by PyO3 version rather than Python version.
+`pyo3_api_tables.json` is the largest and most maintenance-intensive — PyO3 evolves rapidly and several major releases (0.21, 0.23, 0.25, 0.27, 0.28) reshaped the API. The format mirrors cext-review-toolkit's `deprecated_apis.json` but is keyed by PyO3 version rather than Python version.
 
 `stable_abi.json` and `limited_api_headers.json` are **vendored directly from cext-review-toolkit** — they describe CPython's limited API surface, which is exactly what raw `pyo3-ffi` calls inside `unsafe` blocks are subject to when the crate targets the `abi3` feature. The synchronization surface is just these data files.
 
@@ -149,10 +149,10 @@ The discovery script produces:
 - Crate name (from `[package] name` or `[lib] name`)
 - Module name (from `#[pymodule] fn xxx` — must match the cdylib name after `lib` stripping)
 - PyO3 version (exact if `Cargo.lock` exists, otherwise the version spec from `Cargo.toml`)
-- Active PyO3 features (`extension-module`, `abi3`, `abi3-py39`/`abi3-py310`/etc., `gil-disabled`, `multiple-pymethods`, `experimental-async`, `chrono`, `num-complex`, ...)
+- Active PyO3 features (`extension-module`, `abi3`, `abi3-py39`/`abi3-py310`/etc., `multiple-pymethods`, `experimental-async`, `chrono`, `num-complex`, ...). Note: there is **no `gil-disabled` feature** — free-threading is not feature-gated in PyO3.
 - Python version floor (from `abi3-pyNM` feature or maturin config)
 - Build backend (maturin / setuptools-rust [pyproject] / setuptools-rust [setup.py])
-- Whether free-threaded build is configured
+- Whether free-threading is targeted. PyO3 detects a free-threaded interpreter automatically (the `Py_GIL_DISABLED` cfg) — there is no Cargo feature to detect. Infer intent from softer signals: `#[pymodule(gil_used = ...)]` / `m.gil_used(...)` declarations, maturin/CI configuration building against `python3.13t`/`3.14t`, and maintainer-stated intent. An `abi3`/`abi3-pyNM` feature is **not** an FT signal — abi3 is silently ignored under a free-threaded build.
 - All `.rs` source files in the crate, with classification (entry-point module vs supporting modules)
 - Whether the crate has accompanying Python source (`python/` or similar — relevant for parity-checker)
 
@@ -170,7 +170,7 @@ The discovery script produces:
 |-------|---------------|--------|
 | **unsafe-block-auditor** | Soundness concerns in every `unsafe` block; pyo3-ffi raw calls; transmutes; manual buffer-protocol impls | `scan_unsafe_blocks.py` |
 | **pyresult-propagation-checker** | `.unwrap()`/`.expect()` on `PyResult` inside `#[pymethods]`; swallowed errors via `.ok()`/`let _ =`; missing `?` operators; exception clobbering | `scan_pyresult.py` |
-| **gil-discipline-checker** | `Bound<'py, T>` held across `allow_threads`; calling Python APIs in `allow_threads` without re-acquiring GIL; `with_gil` nesting; foreign-callback GIL acquisition; finalization-time `with_gil`; free-threading GIL slot declarations | `scan_gil_discipline.py` |
+| **gil-discipline-checker** | `Bound<'py, T>` held across `detach`/`allow_threads`; calling Python APIs in a detached closure without re-attaching; nested `attach`/`with_gil`; foreign-callback GIL acquisition; finalization-time `attach`; free-threading `gil_used` declarations | `scan_gil_discipline.py` |
 | **panic-safety-checker** | Panic-prone calls (`.unwrap()`, slice indexing, integer overflow with `-C overflow-checks`) reachable from `#[pymethods]` / `#[pyfunction]` | `scan_panic_safety.py` |
 
 #### PyO3-specific (script-backed, Tree-sitter-powered, new)
@@ -186,7 +186,7 @@ The discovery script produces:
 
 | Agent | What It Finds | Script |
 |-------|---------------|--------|
-| **pyo3-version-compat-scanner** | Deprecated APIs by PyO3 version; APIs removed in 0.23 still in use; abi3 feature consistency; raw `pyo3-ffi` calls outside the abi3 surface when abi3 is on | `scan_pyo3_version_compat.py` |
+| **pyo3-version-compat-scanner** | Deprecated APIs by PyO3 version; removed APIs still in use; abi3 feature consistency; raw `pyo3-ffi` calls outside the abi3 surface when abi3 is on | `scan_pyo3_version_compat.py` |
 
 #### Code quality and history
 
@@ -267,28 +267,30 @@ The discovery script produces:
 
 #### 3.2.3 gil-discipline-checker
 
+**Terminology note.** PyO3 renamed the GIL API in 0.25: `Python::with_gil` → `Python::attach`, `py.allow_threads` → `Python::detach`, `Python::with_gil_unchecked` → `Python::attach_unchecked`. The toolkit audits crates across PyO3 0.20–0.29, so the scanner recognizes **both** vocabularies (`with_gil`≡`attach`, `allow_threads`≡`detach`); these pairs are recorded in `data/pyo3_api_tables.json`. This section uses the current names, with the legacy name in parentheses on first mention.
+
 **Patterns to detect:**
 
-1. **`Bound<'py, T>` referenced inside `Python::allow_threads`.** This is a compile error in safe code (the `'py` lifetime is tied to `Python<'py>` which is moved into the closure's lifetime), but `unsafe` code can violate it.
-2. **`Py<T>::bind(py)` inside `allow_threads`.** No `py` is available — flag any `bind` call in a no-GIL scope.
-3. **Calls into the Python C API inside `allow_threads`.** Raw `pyo3-ffi` calls require the GIL; calling them without re-acquiring is UB.
-4. **Nested `Python::with_gil`.** Almost always wrong — `with_gil` inside an existing GIL-held scope is a deadlock risk on some platforms and unnecessary; the inner one should just use the outer `py` token.
-5. **Foreign-callback GIL acquisition.** When a Rust `extern "C" fn` is registered with a non-PyO3 C library (e.g. via `libc`, `libsqlite3-sys`, or a hand-written binding) and the callback body uses PyO3 APIs, the callback must first acquire the GIL via `Python::with_gil`. Flag any `extern "C" fn` containing PyO3 calls without a top-level `with_gil`.
-6. **`with_gil` during interpreter finalization.** `Python::with_gil` panics if called after finalization. Long-lived callback bridges (timer threads, signal handlers, foreign-runtime callbacks) should guard with a finalization check before acquiring the GIL.
-7. **Long-running synchronous work without `allow_threads`.** Heuristic: a function with a loop containing no Python API calls but holding the GIL is a candidate for releasing.
-8. **Free-threading concerns** (PEP 703): missing `Py_mod_gil` declaration in `#[pymodule]` for FT-ready crates; `#[pyclass]` types accessed from multiple threads without `frozen` or interior locking.
+1. **`Bound<'py, T>` referenced inside a `Python::detach` (legacy `allow_threads`) closure.** This is a compile error in safe code (the `'py` lifetime is tied to `Python<'py>`, which is not available inside the closure), but `unsafe` code can violate it.
+2. **`Py<T>::bind(py)` inside a `detach` closure.** No `py` is available — flag any `bind` call in a detached scope.
+3. **Calls into the Python C API inside a `detach` closure.** Raw `pyo3-ffi` calls require an attached interpreter; calling them while detached is UB.
+4. **Nested `Python::attach` (legacy `with_gil`).** Almost always wrong — `attach` inside an already-attached scope is unnecessary and a deadlock risk on some platforms; the inner one should use the outer `py` token.
+5. **Foreign-callback GIL acquisition.** When a Rust `extern "C" fn` is registered with a non-PyO3 C library (e.g. via `libc`, `libsqlite3-sys`, or a hand-written binding) and the callback body uses PyO3 APIs, the callback must first attach via `Python::attach`. Flag any `extern "C" fn` containing PyO3 calls without a top-level `attach`.
+6. **`attach` during interpreter finalization.** `Python::attach` panics if called after the interpreter has finalized. Long-lived callback bridges (timer threads, signal handlers, foreign-runtime callbacks) should guard with a finalization check first. Note `attach_unchecked` is **not** such a guard — it *skips* the interpreter-state check, making it more dangerous, not less.
+7. **Long-running synchronous work without `detach`.** Heuristic: a function with a loop containing no Python API calls but an attached interpreter is a candidate for releasing via `detach`.
+8. **Free-threading concerns** (PEP 703): on an FT-targeted crate, check the module's `gil_used` declaration. Since PyO3 0.28 a module attests thread-safety **by default** (undeclared ⇒ `gil_used = false`); a crate not yet audited for FT safety should *opt out* with `#[pymodule(gil_used = true)]`. On 0.23–0.27 the default was the opposite. Also flag `#[pyclass]` types with shared mutable state reached from multiple threads without `frozen` or interior locking.
 
 **Script:** `scan_gil_discipline.py`
-- Finds all `Python::with_gil` and `py.allow_threads` closures
-- For each `allow_threads` body, walks for any expression that requires `Python<'py>`
-- For each `with_gil` outside of `#[pymodule]` initialization, checks for an ancestor `with_gil` or `Python<'py>` parameter
-- Walks all `extern "C" fn` bodies, flags those using PyO3 APIs without a top-level `with_gil`
+- Finds all `Python::attach`/`with_gil` and `Python::detach`/`py.allow_threads` closures (both vocabularies)
+- For each detached-closure body, walks for any expression that requires `Python<'py>`
+- For each `attach` outside of `#[pymodule]` initialization, checks for an ancestor `attach` or `Python<'py>` parameter
+- Walks all `extern "C" fn` bodies, flags those using PyO3 APIs without a top-level `attach`
 
 **Classification:**
-- **FIX:** Confirmed `Bound`/`Py::bind` use inside `allow_threads` (via `unsafe` cheating); calling pyo3-ffi inside `allow_threads`; foreign callback using PyO3 APIs without GIL acquisition
-- **CONSIDER:** Long synchronous work in GIL-held scope; missing `Py_mod_gil` slot on FT-targeted crates; finalization-vulnerable `with_gil`
-- **POLICY:** Whether to release GIL around specific calls (performance vs simplicity trade-off)
-- **ACCEPTABLE:** `with_gil` at module top level; nested `with_gil` in re-entrant callback bridges that document the rationale
+- **FIX:** Confirmed `Bound`/`Py::bind` use inside a `detach` closure (via `unsafe` cheating); calling pyo3-ffi while detached; foreign callback using PyO3 APIs without attaching
+- **CONSIDER:** Long synchronous work in an attached scope; missing/incorrect `gil_used` declaration on FT-targeted crates; finalization-vulnerable `attach`
+- **POLICY:** Whether to release the interpreter around specific calls (performance vs simplicity trade-off)
+- **ACCEPTABLE:** `attach` at module top level; nested `attach` in re-entrant callback bridges that document the rationale
 
 #### 3.2.4 panic-safety-checker
 
@@ -313,9 +315,9 @@ The discovery script produces:
 
 **Patterns to detect:**
 
-1. **`#[pyclass]` struct with non-`Send` fields and no `unsendable` attribute.** Default `#[pyclass]` requires `Send`; if the struct contains `Rc<_>`, `RefCell<_>`, `Cell<_>`, `*const _`, `*mut _`, or a generic `T` without a `Send` bound, the type does not satisfy `Send`. Detect via field-type pattern matching against `data/non_send_types.json`.
+1. **`#[pyclass]` struct with non-`Send`/non-`Sync` fields and no `unsendable` attribute.** Since PyO3 0.23, `#[pyclass]` requires `Send + Sync` (before 0.23, only `Send`); if the struct contains `Rc<_>` (neither), `RefCell<_>`/`Cell<_>` (`Send` but not `Sync`), `*const _`, `*mut _`, or a generic `T` without the bounds, the type fails the requirement. Detect via field-type pattern matching against `data/non_send_sync_types.json`, which classifies each type by whether it breaks `Send`, `Sync`, or both.
 2. **`unsafe impl Send for MyPyClass` without a `// SAFETY:` comment.** Almost always a code smell.
-3. **Missing `#[pyclass(frozen)]` for free-threading.** On crates that target `gil-disabled` Python builds, mutable shared state in `#[pyclass]` needs `frozen` + interior locking (`Mutex`, `RwLock`) for sound concurrent access.
+3. **Missing `#[pyclass(frozen)]` for free-threading.** On free-threading-targeted crates, mutable shared state in `#[pyclass]` needs `frozen` + interior locking (`Mutex`, `RwLock`) for sound concurrent access.
 4. **`#[pyclass(extends = ParentType)]` with `Drop` impl.** Inheritance + custom Drop is a known pitfall; verify that subclass Drop runs before parent.
 5. **`#[pyclass]` with `dict` or `weakref` options without GC slots.** If the class is collectable, it needs `__traverse__`/`__clear__`.
 
@@ -366,7 +368,7 @@ The discovery script produces:
 2. **`#[pymodule]` body that doesn't return `PyResult<()>`.** Missing error propagation.
 3. **`module.add_class::<T>()` calls that don't propagate errors via `?`.**
 4. **Submodule registration without proper parent linking.** A submodule should be added with `module.add_submodule()` and have its `__name__` set correctly to avoid pickle/import issues.
-5. **Free-threading declarations.** Whether `Py_mod_gil` is set when the crate's other signals (e.g., `pyo3/gil-disabled` feature) indicate FT intent.
+5. **Free-threading declarations.** Whether the module's `gil_used` is declared when the crate's other signals indicate FT intent (recall: free-threading is not feature-gated).
 
 **Script:** `scan_module_init.py`
 - Finds the `#[pymodule]` function
@@ -385,15 +387,15 @@ The discovery script produces:
 1. **`&PyAny` / `&PyDict` / `&PyList` / etc. references in PyO3 ≥ 0.21 code.** The pre-0.21 API; migration is the explicit goal.
 2. **`Py<T>` parameter where `Bound<'py, T>` is more idiomatic.** A function that takes `Py<T>` and immediately calls `.bind(py)` should take `Bound<'py, T>` directly.
 3. **`Borrowed<'a, 'py, T>` use without justification.** This handle is rarely needed; usually `&Bound<'py, T>` is what you want.
-4. **`.clone()` on `Py<T>`.** Pre-0.21 PyO3 had a deprecated `Py<T>: Clone` impl; if the project's `pyo3` version supports it, flag for migration to `.clone_ref(py)`.
-5. **`Py::as_ref(py)`** — the deprecated pre-0.21 pattern; should be `.bind(py)`.
+4. **`.clone()` on `Py<T>`.** `Py<T>: Clone` was available through 0.21; PyO3 0.22 gated it behind the opt-in `py-clone` feature. If the project uses it, flag for migration to `.clone_ref(py)`.
+5. **`Py::as_ref(py)`** — the legacy pattern, removed in 0.26; should be `.bind(py)`.
 
 **Script:** `scan_lifetime_handles.py`
 - Walks for the specific type-path patterns above in function signatures and let bindings
 - Cross-references with the resolved PyO3 version (from discovery) to determine FIX/CONSIDER severity
 
 **Classification:**
-- **FIX:** Use of removed-in-0.23 APIs (`&PyAny` etc.) when `Cargo.toml` targets `pyo3 = "0.23"` or later (compile error, but useful for partial-migration audits)
+- **FIX:** Use of GIL-ref APIs (`&PyAny` etc.) when `Cargo.toml` targets a PyO3 version that has removed them (compile error, but useful for partial-migration audits — the precise removal version is in `data/pyo3_api_tables.json`)
 - **CONSIDER:** Mixed-style code in 0.21/0.22 crates (works but harder to read)
 
 #### 3.2.9 pyo3-version-compat-scanner
@@ -438,7 +440,7 @@ Adapted from `code-review-toolkit`'s version, with the deliberate simplification
 
 **Script:** `analyze_history.py`
 - Function-boundary detection uses Tree-sitter-rust (not Python `ast`)
-- Classification keywords tuned for Rust/PyO3 patterns (`unsafe`, `unwrap`, `Send`, `Bound`, `with_gil`, ...)
+- Classification keywords tuned for Rust/PyO3 patterns (`unsafe`, `unwrap`, `Send`, `Sync`, `Bound`, `attach`/`with_gil`, `detach`, ...)
 - Takes `argv` (not `target, max_files`) to match the `code-review-toolkit` convention
 
 #### 3.2.12 parity-checker (qualitative)
@@ -449,18 +451,22 @@ No script — uses Read/Grep tools directly, guided by the discovery output that
 
 ### 3.3 rust-codegen-mapper (preflight)
 
-Mirrors `generated-code-mapper` from cext-review-toolkit. Runs **first** in every `explore` pipeline and produces an orientation guide at `reports/<crate>_v1/preflight/rust_codegen_map.md`. Downstream agents read it before their own Phase 1.
+Runs **first** in every `explore` pipeline and produces an orientation guide at `reports/<crate>_v1/preflight/rust_codegen_map.md`. Downstream agents read it before their own Phase 1.
+
+**Difference from cext-review-toolkit's `generated-code-mapper`.** In cext, the mapper exists because a project may use Cython *or* pybind11 *or* nanobind *or* Argument Clinic — distinct generators, each with its own playbook, selected by a detection cascade. PyO3 has **one** generator: PyO3 itself. There is nothing to detect and no playbook to select, so this agent carries none of that machinery — there is no `data/playbooks/` directory. The PyO3-specific knowledge it needs lives directly in its own prompt plus `data/pyo3_idioms.json`.
+
+It also does **not** see past procedural macros — `cargo expand` integration is deferred (§10). Its value is not "revealing generated code"; it is **orientation**:
 
 **What it catalogs:**
-- PyO3 version, edition, features (especially `abi3`, `gil-disabled`, `extension-module`, `multiple-pymethods`)
+- PyO3 version, edition, and active features (`abi3`/`abi3-pyNM`, `extension-module`, `multiple-pymethods`, `experimental-async`, ...) — a readable digest of `discover_rust_ext.py` output
 - Build backend (maturin / setuptools-rust pyproject / setuptools-rust setup.py) and Python version floor
-- Free-threading intent (Y/N + signals)
-- File classification: hand-written `.rs` vs `build.rs`-emitted vs vendored
-- Project-specific idioms to filter (e.g. crate-internal type aliases, helper macros)
+- Free-threading intent (Y/N + the signals it was inferred from)
+- File classification: hand-written `.rs` vs `build.rs`-emitted vs vendored crates (under `vendor/` or a workspace)
+- Project-specific idioms downstream agents should treat as ACCEPTABLE noise (crate-internal type aliases, helper `macro_rules!`, the crate's canonical FFI-RAII wrapper pattern) — the **highest-value** output
 - AST-script-finding triage hints (when multiple scanners flag the same site, the mapper proposes a unified classification)
-- Reference templates: if the project has a "correct" pattern for a recurring pattern (RAII over an FFI handle, a specific `#[pyclass]` shape), document it; downstream agents can compare candidates against it
+- Reference templates: if the project has a "correct" pattern for a recurring shape (RAII over an FFI handle, a specific `#[pyclass]` shape), document it so downstream agents can compare candidates against it
 
-This is critical because PyO3 procedural macros mean a lot of generated machinery isn't visible at the source level. The mapper sets expectations so downstream agents don't waste cycles re-deriving project conventions.
+The mapper sets expectations once so downstream agents don't each re-derive the crate's conventions. (The agent file is named `rust-codegen-mapper.md` for continuity with cext; its job is PyO3 orientation, not generator detection.)
 
 ---
 
@@ -468,7 +474,7 @@ This is critical because PyO3 procedural macros mean a lot of generated machiner
 
 ### 4.1 Script Overview
 
-15 scripts total — matching cext-review-toolkit's count.
+15 scripts total.
 
 | Script | Purpose | Tree-sitter? | Adapted From |
 |--------|---------|--------------|--------------|
@@ -477,7 +483,7 @@ This is critical because PyO3 procedural macros mean a lot of generated machiner
 | `discover_rust_ext.py` | Crate/module detection, version + feature resolution | No (TOML + `.rs` heuristics) | New |
 | `scan_unsafe_blocks.py` | `unsafe` block soundness audit | Yes | New |
 | `scan_pyresult.py` | `PyResult` propagation, exception clobbering | Yes | cext's `scan_error_paths.py` (rewritten for Rust) |
-| `scan_gil_discipline.py` | GIL handling, `allow_threads`, foreign callbacks, free-threading | Yes | cext's `scan_gil_usage.py` (rewritten) |
+| `scan_gil_discipline.py` | GIL handling, `detach`/`allow_threads`, foreign callbacks, free-threading | Yes | cext's `scan_gil_usage.py` (rewritten) |
 | `scan_panic_safety.py` | Panic-prone calls across FFI boundary | Yes | New |
 | `scan_pyclass_traits.py` | `#[pyclass]` Send/Sync/frozen/unsendable | Yes | New |
 | `scan_pyclass_protocol.py` | `#[pymethods]` slots, `__traverse__`/`__clear__`, `__richcmp__` | Yes | cext's `scan_type_slots.py` (rewritten) |
@@ -625,7 +631,7 @@ The agent mix differs from cext-review-toolkit's hotspots (refcount + errors + c
 /rust-ext-review-toolkit:migrate [scope]
 ```
 
-**This is the highest-value command for Rust extensions** because PyO3 has had three major API reshufflings (0.21 `Bound` migration, 0.22 cleanups, 0.23 removals) and is now in the middle of the free-threading rollout.
+**This is the highest-value command for Rust extensions** because PyO3 has reshuffled its API repeatedly (0.21 `Bound` migration, 0.23 `IntoPyObject`, 0.25 `attach`/`detach` rename, 0.27 `FromPyObject` rework, 0.28 free-threading default) and the free-threading rollout is ongoing.
 
 Runs lifetime-handle-checker, pyo3-version-compat-scanner, pyclass-traits-checker, and module-init-checker. Produces a migration checklist:
 
@@ -654,10 +660,10 @@ Runs lifetime-handle-checker, pyo3-version-compat-scanner, pyclass-traits-checke
 - [ ] Verify abi3 feature still works under stricter restrictions
 
 ### Phase 4: Free-threading readiness (optional, for 3.13t/3.14t)
-- [ ] Add `Py_mod_gil = Py_MOD_GIL_NOT_USED` to `#[pymodule]`
 - [ ] Audit 6 `#[pyclass]` types for shared mutable state
 - [ ] Add `frozen` to 4 candidates; refactor 2 to use interior locking
-- [ ] Add `gil-disabled` feature to Cargo.toml
+- [ ] Declare module thread-safety: `#[pymodule(gil_used = false)]` (or leave the 0.28+ default), or `gil_used = true` if not yet FT-audited
+- [ ] Build/test against a free-threaded interpreter (`python3.13t`/`3.14t`)
 
 ### Phase 5: abi3 floor bump (optional)
 - [ ] Currently `abi3-py39`; bumping to `abi3-py310` unlocks `PyDict_GetItemRef`, ...
@@ -693,8 +699,8 @@ Same four tags as cext-review-toolkit, with extension-specific calibration:
 - [ ] `rust_ts_utils.py` — shared parsing module
 - [ ] `scan_common.py` — adapted from cext-review-toolkit
 - [ ] `discover_rust_ext.py` — Cargo.toml + pyproject.toml + maturin + setuptools-rust (pyproject + setup.py) discovery
-- [ ] `data/pyo3_api_tables.json` (seeded from PyO3 0.20–0.23 release notes)
-- [ ] `data/non_send_types.json`, `data/panic_unwind_apis.json`
+- [ ] `data/pyo3_api_tables.json` (seeded from PyO3 0.20–0.29 release notes)
+- [ ] `data/non_send_sync_types.json`, `data/panic_unwind_apis.json`
 - [ ] Vendor `data/stable_abi.json` and `data/limited_api_headers.json` from cext-review-toolkit
 - [ ] Test helper: `TempRustExtension` context manager, `import_script` loader
 - [ ] Fixture strings: `MINIMAL_PYO3_CRATE`, `PYO3_CRATE_WITH_PYCLASS`, `PYO3_CRATE_WITH_UNSAFE`, `PYO3_CRATE_WITH_BUGS`
@@ -809,7 +815,7 @@ rust-ext-review-toolkit/
 │           ├── pyo3_api_tables.json
 │           ├── pyo3_version_matrix.json
 │           ├── abi3_compatible_apis.json
-│           ├── non_send_types.json
+│           ├── non_send_sync_types.json
 │           ├── panic_unwind_apis.json
 │           ├── pyo3_idioms.json
 │           ├── stable_abi.json              # vendored from cext-review-toolkit
@@ -867,7 +873,7 @@ Each scanner must have tests covering:
 - Detection of the primary bug pattern (true positive)
 - Clean code producing no findings (true negative)
 - At least one edge case (heavy attribute use, generics, macro-rich code)
-- For version-aware scanners: behavior across PyO3 0.21, 0.22, 0.23
+- For version-aware scanners: behavior across the inflection versions (0.21, 0.25, 0.28)
 
 ### 9.3 Real-world Validation
 
@@ -881,7 +887,7 @@ Before each release, run on at least 3 real PyO3 crates spanning small/medium/la
 
 1. **Procedural-macro expansion.** Should `run_external_tools.py` opportunistically run `cargo expand` and feed expanded output to scanners that need post-expansion visibility (e.g. for verifying `#[pyclass]` actually wires the slot the user thinks it does)? Cost: long runtime, requires nightly. Benefit: closes a real visibility gap.
 2. **`miri` integration depth.** Miri can detect real UB but only in test code paths. Worth integrating as a quality signal? Probably yes but as a separate optional phase, not the primary analysis.
-3. **Trait-bound satisfaction.** Some checks (e.g. "does `MyType` actually satisfy `Send`?") need compiler-level knowledge. Approach: encode known-non-Send patterns in `data/non_send_types.json` and accept that we'll miss generic-parameter cases.
+3. **Trait-bound satisfaction.** Some checks (e.g. "does `MyType` actually satisfy `Send + Sync`?") need compiler-level knowledge. Approach: encode known-non-`Send`/non-`Sync` patterns in `data/non_send_sync_types.json` and accept that we'll miss generic-parameter cases.
 4. **Async PyO3 (`pyo3-async-runtimes`).** Tokio/async-std bridging has its own bug surface (Send across awaits, GIL held across await points, runtime-pinning issues). Plausible future agent: `async-pyo3-checker`. Out of scope for v0.1.
 5. **`numpy` / `pyo3-numpy`.** Array-protocol-specific patterns (lifetime of buffers, copy semantics, dtype dispatching). Plausible future playbook.
 6. **Cross-language parity tooling.** When a project has both Rust and Python implementations, the parity-checker is qualitative. Could a script detect signature parity (matching Python function names + arg counts)? Worth prototyping.
@@ -898,7 +904,7 @@ Before each release, run on at least 3 real PyO3 crates spanning small/medium/la
 | Dependencies | `tree-sitter`, `tree-sitter-c` | `tree-sitter`, `tree-sitter-rust` |
 | Project discovery | `setup.py`, `pyproject.toml` (setuptools/meson-python/scikit-build), `meson.build`, `CMakeLists.txt`, `#include <Python.h>` fallback | `Cargo.toml` + `pyproject.toml` (maturin/setuptools-rust), `setup.py` with `setuptools_rust.RustExtension`, `use pyo3::` fallback |
 | Perspective | Code that *consumes* the C API directly | Code that *consumes* `pyo3` (which wraps the C API) |
-| Crown jewel finding | Borrowed-ref-across-callback | Unsafe-block soundness violation; `Bound`/`Py` held across `allow_threads` |
+| Crown jewel finding | Borrowed-ref-across-callback | Unsafe-block soundness violation; `Bound`/`Py` held across `detach` |
 | Agent count | 13 (+ preflight) | 13 (+ preflight) |
 | Unique-to-this-toolkit agents | parity-checker (kept) | unsafe-block-auditor, pyclass-traits-checker, lifetime-handle-checker, panic-safety-checker |
 | Dropped agents | — | refcount-auditor (Drop handles it), null-safety-scanner (type system), pyerr-clear-auditor (folded into pyresult), resource-lifecycle-checker (Drop), stable-abi-checker (folded into pyo3-version-compat) |
@@ -909,7 +915,7 @@ Before each release, run on at least 3 real PyO3 crates spanning small/medium/la
 | External tools | clang-tidy, cppcheck | clippy, miri, cargo-geiger, cargo-expand, cargo-metadata |
 | Unique command | migrate (multi-phase, stable ABI, version compat) | migrate (Bound API migration, FT readiness, abi3 floor) — significantly more central given PyO3's version cadence |
 | Data files shared | — | `stable_abi.json` and `limited_api_headers.json` vendored directly from cext-review-toolkit |
-| Generator-mapper preflight | Cython / pybind11 / nanobind / Argument Clinic | PyO3 version + features + macro-expansion considerations |
+| Generator-mapper preflight | Cython / pybind11 / nanobind / Argument Clinic (multiple generators, selectable playbooks) | Single generator (PyO3); the mapper instead captures version + features + project-specific idioms (no playbook indirection) |
 
 ---
 
