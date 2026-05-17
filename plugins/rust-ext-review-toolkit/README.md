@@ -4,9 +4,6 @@ PyO3 Rust-extension analysis plugin for Claude Code. See the
 [project README](../../README.md) for full documentation, and
 [`CLAUDE.md`](../../CLAUDE.md) for the development guide.
 
-> **Status:** pre-v0.1, under active construction. `agents/`, `commands/`, and
-> `scripts/` are populated phase by phase per `IMPLEMENTATION_ROADMAP.md`.
-
 ## Plugin structure
 
 ```
@@ -16,7 +13,7 @@ rust-ext-review-toolkit/
 ├── agents/        # 13 agent prompt definitions (markdown)
 ├── commands/      # 4 command definitions: explore, health, hotspots, migrate
 ├── scripts/       # 15 Python analysis scripts
-└── data/          # 8 JSON data files (PyO3 API tables, abi3 surface, ...)
+└── data/          # 6 JSON data files (PyO3 API tables, idioms, abi3 surface)
 ```
 
 ## Agents — 13
@@ -37,8 +34,7 @@ rust-ext-review-toolkit/
 tools integration. Every analysis script exposes
 `analyze(target, *, max_files=0) -> dict` and outputs JSON to stdout.
 
-## Data — 8 JSON files
+## Data — 6 JSON files
 
-PyO3 API tables and version matrix, the abi3-compatible API surface, the
-non-Send/Sync type list, panic-prone stdlib APIs, PyO3 idioms, and the vendored
-CPython stable-ABI / limited-API-header lists.
+The PyO3 API table, the non-Send/Sync type list, panic-prone stdlib APIs, PyO3
+idioms, and the vendored CPython stable-ABI / limited-API-header lists.

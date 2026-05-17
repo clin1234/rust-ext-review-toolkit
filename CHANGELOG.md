@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The toolkit is pre-v0.1 and under active construction from
-`rust-ext-review-toolkit-design.md` and `IMPLEMENTATION_ROADMAP.md`.
+## [0.1.0] - 2026-05-17
+
+The first release: the PyO3 review toolkit, built from
+`rust-ext-review-toolkit-design.md` and validated against five real PyO3
+extensions.
 
 ### Added
-- Design document set, reconciled to current PyO3 (0.28 stable, 0.29 in
-  development): `rust-ext-review-toolkit-design.md`, `PYO3_PRIMER.md`,
-  `IMPLEMENTATION_ROADMAP.md`, `TREE_SITTER_RUST_RECIPES.md`.
+- The design spec `rust-ext-review-toolkit-design.md`, reconciled to current
+  PyO3 (0.28 stable, 0.29 in development). The build-time companion docs (a
+  PyO3 domain primer, an implementation roadmap, and a tree-sitter-rust recipe
+  reference) guided the implementation and remain in git history.
 - Top-level documentation (`README.md`, `CLAUDE.md`) and plugin metadata
   rewritten for the PyO3 focus and the 13-agent design.
 - Foundation code (roadmap phase 1): `rust_ts_utils.py` (the tree-sitter-rust
