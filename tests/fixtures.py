@@ -1,7 +1,7 @@
 """Canonical PyO3 crate fixtures for rust-ext-review-toolkit tests.
 
 These are Rust source strings — they need to *parse*, not necessarily
-*compile*. See IMPLEMENTATION_ROADMAP.md §6.
+*compile*.
 """
 
 MINIMAL_PYO3_CRATE = """\
@@ -70,7 +70,7 @@ fn safe_unsafe(m: &Bound<'_, PyModule>) -> PyResult<()> {
 """
 
 # Every scanner-relevant bug, one per #[pyfunction]/item. Bug numbers map to
-# the agent that should catch them (IMPLEMENTATION_ROADMAP.md §6.4).
+# the agent that should catch them.
 PYO3_CRATE_WITH_BUGS = """\
 use pyo3::prelude::*;
 use pyo3::ffi;

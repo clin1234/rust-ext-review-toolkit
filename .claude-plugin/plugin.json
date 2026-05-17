@@ -1,6 +1,6 @@
 {
   "name": "rust-ext-review-toolkit",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Analysis agents for Python extensions written in Rust with PyO3: unsafe-block soundness auditing, PyResult propagation, GIL discipline (attach/detach, foreign callbacks, free-threading), panic safety across the FFI boundary, #[pyclass] Send/Sync/frozen trait bounds, #[pymethods] protocol correctness, #[pymodule] init, Bound/Py/Borrowed lifetime handles, PyO3 version compatibility, complexity measurement, and git history analysis. Tree-sitter-rust-powered, with optional clippy/miri/cargo-expand integration.",
   "author": {
     "name": "Charlie Lin and Danzin"

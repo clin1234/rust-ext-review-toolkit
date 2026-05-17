@@ -11,15 +11,12 @@ Part of a family of review toolkits:
 
 Key point: PyO3's type system already eliminates most C-extension bug classes (manual refcounting, NULL derefs, borrowed-ref-across-call). The toolkit's bug *catalog* is therefore PyO3-specific — the danger concentrates in `unsafe` blocks, panics crossing the FFI boundary, `#[pyclass]` `Send`/`Sync` bounds, and swallowed `PyResult`s. Like its siblings it uses Tree-sitter (here, `tree-sitter-rust`) rather than regex, because Rust extension styles and procedural-macro-heavy code defeat regex-based analysis.
 
-> **Status:** pre-v0.1, under active construction. The plugin is being built from the design documents per `IMPLEMENTATION_ROADMAP.md`; `agents/`, `commands/`, and `scripts/` are populated phase by phase.
+> **Status:** v0.1 — the 13 agents, 15 scripts, 4 commands, and data files are implemented, tested (`python -m unittest discover tests`), and validated against real PyO3 crates (see `docs/real-world-validation.md`).
 
-## Design documents (authoritative — read in this order)
-1. `rust-ext-review-toolkit-design.md` — the spec: agents, scripts, schemas, classification.
-2. `PYO3_PRIMER.md` — the domain brief: what PyO3 is, what each scanner detects and why.
-3. `IMPLEMENTATION_ROADMAP.md` — the action plan: what to build, in what order, with exit criteria.
-4. `TREE_SITTER_RUST_RECIPES.md` — coding reference: tree-sitter-rust node types and per-scanner walker recipes.
+## Design document
+`rust-ext-review-toolkit-design.md` is the authoritative spec — agents, scripts, schemas, classification — reconciled to current PyO3 (0.28 stable, 0.29 in development). If current PyO3 docs and the design doc disagree, trust the PyO3 docs and flag the discrepancy.
 
-All four are reconciled to current PyO3 (0.28 stable, 0.29 in development). If current PyO3 docs and a design doc disagree, trust the PyO3 docs and flag the discrepancy.
+The v0.1 build was guided by three build-time companion docs (a PyO3 domain primer, an implementation roadmap, and a tree-sitter-rust recipe reference); they served their purpose and were removed once the build was complete — they remain in git history. The live coding references are now `scripts/rust_ts_utils.py` (grammar facts in its docstrings), the per-agent prompt files (per-hazard rationale), and the Gotchas section below.
 
 ## Prerequisites
 - Python 3.10+
@@ -68,9 +65,8 @@ rust-ext-review-toolkit/
 ├── CHANGELOG.md                       # Keep a Changelog format
 ├── LICENSE                            # MIT
 ├── rust-ext-review-toolkit-design.md  # Design spec
-├── PYO3_PRIMER.md                     # Domain brief
-├── IMPLEMENTATION_ROADMAP.md          # Action plan
-├── TREE_SITTER_RUST_RECIPES.md        # Coding reference
+├── WORKING_WITH_MAINTAINERS.md        # Maintainer-engagement contract
+├── docs/real-world-validation.md      # Phase 7 validation report
 ├── .claude-plugin/                    # marketplace.json + plugin.json
 ├── .claude/skills/task-workflow/      # Claude Code skill for the dev workflow
 ├── plugins/rust-ext-review-toolkit/   # The actual plugin
@@ -78,7 +74,7 @@ rust-ext-review-toolkit/
 │   ├── agents/                        # 13 agent prompt definitions (markdown)
 │   ├── commands/                      # 4 command definitions (markdown)
 │   ├── scripts/                       # 15 Python scripts (the core code)
-│   └── data/                          # 8 JSON data files
+│   └── data/                          # 6 JSON data files
 └── tests/                             # unittest test suite
 ```
 
@@ -110,7 +106,7 @@ rust-ext-review-toolkit/
 
 **Script calling convention:** every analysis script exposes `analyze(target: str, *, max_files: int = 0) -> dict` and a `main()` that outputs JSON to stdout via shared `parse_common_args()`. Exception: `analyze_history.py` takes `argv` (matches the code-review-toolkit convention).
 
-**Data files** in `data/` (design §2.2): `pyo3_api_tables.json`, `pyo3_version_matrix.json`, `abi3_compatible_apis.json`, `non_send_sync_types.json`, `panic_unwind_apis.json`, `pyo3_idioms.json`, plus `stable_abi.json` and `limited_api_headers.json` — the last two vendored from cext-review-toolkit, used for raw `pyo3-ffi` audits under the `abi3` feature.
+**Data files** in `data/` — six JSON files: `pyo3_api_tables.json`, `non_send_sync_types.json`, `panic_unwind_apis.json`, `pyo3_idioms.json`, plus the vendored `stable_abi.json` and `limited_api_headers.json` (from cext-review-toolkit, for raw `pyo3-ffi` audits under the `abi3` feature). The design (§2.2, §8) also specs `pyo3_version_matrix.json` and `abi3_compatible_apis.json`; both were deferred to v0.2 — no v0.1 scanner consumes them.
 
 ### Agents (prompt definitions for Claude Code)
 
@@ -142,7 +138,7 @@ Every finding is tagged FIX / CONSIDER / POLICY / ACCEPTABLE — see design §6.
 ## Testing notes
 - All tests use `unittest` — never pytest
 - Test helper in `tests/helpers.py`: `TempRustExtension` context manager, `import_script()` loader
-- Fixture crate strings (roadmap §6): `MINIMAL_PYO3_CRATE`, `PYO3_CRATE_WITH_PYCLASS`, `PYO3_CRATE_WITH_UNSAFE`, `PYO3_CRATE_WITH_BUGS`, `PYO3_FT_TARGET_CRATE`
+- Fixture crate strings (in `tests/fixtures.py`): `MINIMAL_PYO3_CRATE`, `PYO3_CRATE_WITH_PYCLASS`, `PYO3_CRATE_WITH_UNSAFE`, `PYO3_CRATE_WITH_BUGS`, `PYO3_FT_TARGET_CRATE`
 - Tests create temp crates (`Cargo.toml` + `.rs` files), run scripts, and check JSON output
 - Version-aware scanners need tests across PyO3 0.21 / 0.25 / 0.28
 

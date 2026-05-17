@@ -8,11 +8,6 @@ version-migration debt.
 
 *Find the soundness bugs in your Rust extension before your users do.*
 
-> **Status: pre-v0.1, under active construction.** The toolkit is being built
-> from its design documents. Until v0.1, the installed plugin has an incomplete
-> agent set. See [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) for
-> progress.
-
 ## What PyO3 prevents — and what it doesn't
 
 PyO3's type system already eliminates most classic C-extension bug classes, so
@@ -40,9 +35,6 @@ What PyO3 does **not** prevent — and what this toolkit is *for*:
 - Free-threaded Python (3.13t/3.14t) readiness
 
 ## Installation
-
-> Pre-v0.1: installation gives an incomplete plugin. The instructions below are
-> the intended UX.
 
 ### Marketplace install
 
