@@ -1,0 +1,138 @@
+{
+  "schema_version": 2,
+  "_comment": "Headline PyO3 API shifts across 0.20-0.29, used by pyo3-version-compat-scanner and lifetime-handle-checker. Seed data: the most-cited migrations. Sourced from https://pyo3.rs/main/migration.html. Each entry's `detect` field tells the scanner how to match it: kind `call` (a call whose leaf name equals `name`), `call_suffix` (a call whose leaf name ends with `name`), `type` (a type identifier whose final segment equals `name`), or `skip` (matched by another agent named in `owner`). Version classification: a use is `removed_api` (FIX) at/after `removed`, `deprecated_api` (CONSIDER) at/after `deprecated`, else `renamed_api` (CONSIDER) at/after `renamed_in`.",
+  "baseline_version": "0.28",
+  "supported_floor": "0.21",
+  "apis": {
+    "python_with_gil": {
+      "renamed_to": "Python::attach",
+      "renamed_in": "0.25",
+      "rust_signature_pattern": "Python::with_gil",
+      "detect": { "kind": "call", "name": "with_gil" },
+      "category": "gil_api",
+      "note": "Legacy GIL-acquire name; scanners recognise both with_gil and attach."
+    },
+    "python_allow_threads": {
+      "renamed_to": "Python::detach",
+      "renamed_in": "0.25",
+      "rust_signature_pattern": ".allow_threads(",
+      "detect": { "kind": "call", "name": "allow_threads" },
+      "category": "gil_api",
+      "note": "Legacy GIL-release name; scanners recognise both allow_threads and detach."
+    },
+    "python_with_gil_unchecked": {
+      "renamed_to": "Python::attach_unchecked",
+      "renamed_in": "0.25",
+      "rust_signature_pattern": "with_gil_unchecked",
+      "detect": { "kind": "call", "name": "with_gil_unchecked" },
+      "category": "gil_api",
+      "note": "unsafe variant that skips the interpreter-state check."
+    },
+    "prepare_freethreaded_python": {
+      "renamed_to": "Python::initialize",
+      "renamed_in": "0.25",
+      "rust_signature_pattern": "prepare_freethreaded_python",
+      "detect": { "kind": "call", "name": "prepare_freethreaded_python" },
+      "category": "gil_api"
+    },
+    "gil_once_cell": {
+      "renamed_to": "PyOnceLock",
+      "renamed_in": "0.25",
+      "rust_signature_pattern": "GILOnceCell",
+      "detect": { "kind": "type", "name": "GILOnceCell" },
+      "category": "sync",
+      "note": "GILOnceCell was renamed to PyOnceLock (true single-init)."
+    },
+    "gil_protected": {
+      "deprecated": "0.25",
+      "replacement": "std::sync::Mutex + MutexExt",
+      "rust_signature_pattern": "GILProtected",
+      "detect": { "kind": "type", "name": "GILProtected" },
+      "category": "sync"
+    },
+    "py_any_gil_ref": {
+      "deprecated": "0.21",
+      "removed": "0.24+",
+      "replacement": "Bound<'py, PyAny>",
+      "rust_signature_pattern": "&PyAny",
+      "detect": { "kind": "skip", "owner": "lifetime-handle-checker" },
+      "category": "handle_kind",
+      "note": "GIL-ref type. Kept transitionally behind the `gil-refs` feature; the exact removal release is approximate -- treat presence as CONSIDER on 0.21-0.22, FIX where it no longer compiles."
+    },
+    "pydict_gil_ref": {
+      "deprecated": "0.21",
+      "removed": "0.24+",
+      "replacement": "Bound<'py, PyDict>",
+      "rust_signature_pattern": "&PyDict",
+      "detect": { "kind": "skip", "owner": "lifetime-handle-checker" },
+      "category": "handle_kind",
+      "note": "GIL-ref type; see py_any_gil_ref. The same applies to &PyList, &PyTuple, &PyString, &PyBytes, etc."
+    },
+    "py_as_ref": {
+      "deprecated": "0.21",
+      "removed": "0.26",
+      "replacement": ".bind(py)",
+      "rust_signature_pattern": ".as_ref(py)",
+      "detect": { "kind": "skip", "owner": "lifetime-handle-checker" },
+      "category": "handle_kind",
+      "note": "Py::as_ref(py) returned a GIL ref; use Py::bind(py) -> &Bound<'py, T>."
+    },
+    "py_clone": {
+      "deprecated": "0.21",
+      "feature_gated": "0.22",
+      "replacement": ".clone_ref(py)",
+      "rust_signature_pattern": "Py<T> .clone()",
+      "detect": { "kind": "skip", "owner": "manual review (no reliable syntactic match)" },
+      "category": "refcount",
+      "note": "Bare Clone on Py<T> was deprecated in 0.21 and gated behind the opt-in `py-clone` feature in 0.22 (it panics without the GIL). Prefer .clone_ref(py)."
+    },
+    "downcast": {
+      "renamed_to": "cast",
+      "renamed_in": "0.27",
+      "rust_signature_pattern": ".downcast(",
+      "detect": { "kind": "call", "name": "downcast" },
+      "category": "conversion",
+      "note": "Bound::downcast / .downcast_into renamed to .cast / .cast_into; DowncastError -> CastError."
+    },
+    "bound_suffix": {
+      "introduced": "0.21",
+      "removed": "0.23",
+      "replacement": "un-suffixed constructors",
+      "rust_signature_pattern": "_bound(",
+      "detect": { "kind": "skip", "owner": "manual review -- not syntactically detectable" },
+      "category": "constructor",
+      "note": "0.21 added `_bound`-suffixed constructors (PyString::new_bound, ...). 0.23 dropped the suffix. NOT auto-detected: the `_bound` suffix collides with the current `Py::into_bound` method and the stdlib `lower_bound`/`upper_bound`, so a suffix match is almost all false positives. Grep `_bound(` and review by hand on a 0.21-0.22 crate."
+    },
+    "into_py_trait": {
+      "deprecated": "0.23",
+      "replacement": "IntoPyObject",
+      "rust_signature_pattern": "IntoPy",
+      "detect": { "kind": "type", "name": "IntoPy" },
+      "category": "conversion",
+      "note": "IntoPy and ToPyObject were replaced by the IntoPyObject trait in 0.23."
+    },
+    "to_object": {
+      "deprecated": "0.23",
+      "replacement": "IntoPyObject",
+      "rust_signature_pattern": ".to_object(",
+      "detect": { "kind": "call", "name": "to_object" },
+      "category": "conversion"
+    },
+    "pycell": {
+      "deprecated": "0.21",
+      "replacement": "Bound<'py, T> / Py<T>",
+      "rust_signature_pattern": "PyCell",
+      "detect": { "kind": "type", "name": "PyCell" },
+      "category": "handle_kind",
+      "note": "PyCell<T> was deprecated in favour of Bound<'py, T> and Py<T>."
+    },
+    "py_from_owned_ptr": {
+      "deprecated": "0.28",
+      "replacement": "Bound APIs (Bound::from_owned_ptr, etc.)",
+      "rust_signature_pattern": "from_owned_ptr",
+      "detect": { "kind": "call", "name": "from_owned_ptr" },
+      "category": "unsafe_ffi",
+      "note": "Py<T> raw-pointer constructors were deprecated in 0.28."
+    }
+  }
+}

@@ -1,298 +1,248 @@
 #!/usr/bin/env python3
-"""Run external static analysis tools (rust-analyzer, cargo clippy) on Rust code.
+"""Run external Rust tooling (cargo metadata, clippy) on a PyO3 crate.
 
-Outputs JSON matching the standard rust-ext-review-toolkit envelope format.
-Both tools are optional -- gracefully skips unavailable ones.
+This is the opportunistic external-tool baseline (design SS2.3). It is
+deliberately conservative about executing code:
+
+  - `cargo metadata` runs by default -- it resolves the dependency graph
+    without compiling, so it executes no build scripts. It confirms the exact
+    PyO3 version and feature set.
+  - `cargo clippy` runs **only** with `--run-clippy`. Clippy compiles the
+    crate, which executes `build.rs` and procedural macros -- arbitrary code.
+    A review tool should not do that to possibly-untrusted code unprompted.
+  - miri / cargo-geiger / cargo-expand are detected and reported but not run
+    (nightly-only, slow, or deep-mode tools); the agent is told the command.
+
+All output is JSON. Every tool is optional; unavailable ones are listed in
+`skipped_tools` with a reason.
 
 Usage:
-    python run_external_tools.py [path] [--max-files N] [--compile-commands PATH]
-    python run_external_tools.py [path] [--skip TOOL[,TOOL]]
-    python run_external_tools.py [path] [--tools TOOL[,TOOL]]
+    python run_external_tools.py [path] [--run-clippy] [--max-files N]
 """
 
 import json
-import re
 import shutil
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scan_common import find_project_root, discover_c_files
+from scan_common import find_project_root  # noqa: E402
+
+_METADATA_TIMEOUT = 120
+_CLIPPY_TIMEOUT = 600
 
 
-_PER_FILE_TIMEOUT = 120
+def _tool_available(executable: str) -> bool:
+    """True if an external executable is resolvable on PATH."""
+    return shutil.which(executable) is not None
 
 
-def _tool_available(name: str) -> bool:
-    """Check if an external tool is on PATH."""
-    return shutil.which(name) is not None
-
-
-def _find_compile_commands(root: Path, explicit: str | None) -> Path | None:
-    """Find compile_commands.json in common locations."""
-    if explicit:
-        p = Path(explicit)
-        if p.is_file():
-            return p
-        if p.is_dir():
-            cc = p / "compile_commands.json"
-            if cc.is_file():
-                return cc
-        return None
-    for candidate in [
-        root / "compile_commands.json",
-        root / "build" / "compile_commands.json",
-        root / "_build" / "compile_commands.json",
-        root / "builddir" / "compile_commands.json",
-    ]:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _run_clang_tidy(
-    files: list[Path], compile_commands: Path, project_root: Path,
-) -> list[dict]:
-    """Run rust-analyzer on files using the compile database."""
-    findings = []
-    checks = "-*,rust-analyzer-*,bugprone-*,cert-*"
-
-    for filepath in files:
-        try:
-            result = subprocess.run(
-                [
-                    "rust-analyzer",
-                    f"-p={compile_commands.parent}",
-                    f"--checks={checks}",
-                    "--quiet",
-                    str(filepath),
-                ],
-                capture_output=True, text=True,
-                timeout=_PER_FILE_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired:
-            continue
-        except FileNotFoundError:
-            break
-
-        for line in result.stdout.splitlines():
-            m = re.match(
-                r"^(.+?):(\d+):\d+:\s+(warning|error|note):\s+(.+?)\s+\[(.+)\]$",
-                line,
-            )
-            if not m:
-                continue
-            fpath, lineno, severity, message, checker = m.groups()
-            try:
-                rel = str(Path(fpath).relative_to(project_root))
-            except ValueError:
-                rel = fpath
-            findings.append({
-                "type": "clang_tidy_finding",
-                "file": rel,
-                "line": int(lineno),
-                "checker": checker,
-                "severity": severity,
-                "detail": message,
-                "confidence": "high",
-                "tool": "rust-analyzer",
-            })
-
-    return findings
-
-
-def _run_cargo_clippy(
-    files: list[Path], project_root: Path,
-    compile_commands: Path | None = None,
-) -> list[dict]:
-    """Run cargo clippy on files (works without compile_commands.json)."""
-    findings = []
-    if not files:
-        return findings
-
-    cmd = [
-        "cargo clippy",
-    ]
-    if compile_commands:
-        cmd.append(f"--project={compile_commands}")
-    else:
-        cmd.extend(str(f) for f in files)
-
+def _run_cargo_metadata(root: Path) -> dict:
+    """Resolve the dependency graph (no compilation) and extract PyO3 info."""
     try:
         result = subprocess.run(
-            cmd,
-            capture_output=True, text=True,
-            timeout=_PER_FILE_TIMEOUT * len(files),
+            ["cargo", "metadata", "--format-version", "1"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_METADATA_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return {"error": f"cargo metadata failed: {e}"}
+    if result.returncode != 0:
+        return {
+            "error": "cargo metadata returned non-zero",
+            "stderr": result.stderr[-400:],
+        }
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"error": "cargo metadata output was not valid JSON"}
+
+    pyo3_pkgs = [p for p in data.get("packages", []) if p.get("name") == "pyo3"]
+    if not pyo3_pkgs:
+        return {"pyo3_in_graph": False}
+    pyo3 = pyo3_pkgs[0]
+    enabled_features: list[str] = []
+    for node in data.get("resolve", {}).get("nodes", []):
+        if node.get("id") == pyo3.get("id"):
+            enabled_features = node.get("features", [])
+            break
+    return {
+        "pyo3_in_graph": True,
+        "pyo3_version": pyo3.get("version"),
+        "pyo3_enabled_features": enabled_features,
+        "pyo3_versions_in_graph": sorted(
+            {p.get("version") for p in pyo3_pkgs if p.get("version")}
+        ),
+    }
+
+
+def _run_clippy(root: Path, project_root: Path) -> tuple[list[dict], str | None]:
+    """Run `cargo clippy --message-format=json` and parse the lints."""
+    try:
+        result = subprocess.run(
+            ["cargo", "clippy", "--message-format=json", "--quiet"],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            timeout=_CLIPPY_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        return findings
-    except FileNotFoundError:
-        return findings
+        return [], "clippy timed out"
+    except (FileNotFoundError, OSError) as e:
+        return [], f"clippy could not run: {e}"
 
-    # Parse XML output from stderr (cargo clippy sends XML to stderr).
-    xml_output = result.stderr
-    if not xml_output.strip().startswith("<?xml"):
-        return findings
-
-    try:
-        root_elem = ET.fromstring(xml_output)
-    except ET.ParseError:
-        return findings
-
-    errors = root_elem.find("errors")
-    if errors is None:
-        return findings
-
-    for error in errors.findall("error"):
-        checker = error.get("id", "unknown")
-        severity = error.get("severity", "warning")
-        message = error.get("msg", "")
-
-        # Skip informational messages.
-        if severity == "information":
+    findings: list[dict] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
             continue
-
-        location = error.find("location")
-        if location is None:
-            continue
-        fpath = location.get("file", "")
-        lineno = int(location.get("line", "0"))
-
         try:
-            rel = str(Path(fpath).relative_to(project_root))
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("reason") != "compiler-message":
+            continue
+        message = record.get("message") or {}
+        code = ((message.get("code") or {}).get("code")) or ""
+        if not code.startswith("clippy::"):
+            continue
+        primary = next(
+            (s for s in message.get("spans", []) if s.get("is_primary")), None
+        )
+        if primary is None:
+            continue
+        fpath = primary.get("file_name", "")
+        try:
+            rel = str(Path(fpath).resolve().relative_to(project_root))
         except ValueError:
             rel = fpath
+        findings.append(
+            {
+                "type": "clippy_lint",
+                "file": rel,
+                "line": primary.get("line_start", 0),
+                "lint": code,
+                "severity": message.get("level", "warning"),
+                "detail": message.get("message", ""),
+                "tool": "clippy",
+            }
+        )
+    return findings, None
 
-        findings.append({
-            "type": "cargo_clippy_finding",
-            "file": rel,
-            "line": lineno,
-            "checker": checker,
-            "severity": severity,
-            "detail": message,
-            "confidence": "high" if severity == "error" else "medium",
-            "tool": "cargo clippy",
-        })
 
-    return findings
-
-
-def analyze(
-    target: str, *, max_files: int = 0,
-    compile_commands: str | None = None,
-    skip_tools: set[str] | None = None,
-    only_tools: set[str] | None = None,
-) -> dict:
-    """Run external tools and return findings in standard envelope."""
+def analyze(target: str, *, max_files: int = 0, run_clippy: bool = False) -> dict:
+    """Run the external-tool baseline. ``max_files`` is accepted but unused
+    (cargo tooling operates on the whole crate)."""
     target_path = Path(target).resolve()
     project_root = find_project_root(target_path)
     scan_root = target_path if target_path.is_dir() else target_path.parent
 
-    cc_path = _find_compile_commands(project_root, compile_commands)
+    tools_available = {
+        "cargo": _tool_available("cargo"),
+        "clippy": _tool_available("cargo-clippy"),
+        "miri": _tool_available("cargo-miri"),
+        "cargo_geiger": _tool_available("cargo-geiger"),
+        "cargo_expand": _tool_available("cargo-expand"),
+    }
 
-    has_tidy = _tool_available("rust-analyzer")
-    has_cargo clippy = _tool_available("cargo clippy")
+    findings: list[dict] = []
+    skipped: list[dict] = []
+    cargo_metadata: dict | None = None
 
-    skip = skip_tools or set()
-    if only_tools:
-        if "rust-analyzer" not in only_tools:
-            skip.add("rust-analyzer")
-        if "cargo clippy" not in only_tools:
-            skip.add("cargo clippy")
-
-    files = list(discover_c_files(scan_root, max_files=max_files))
-
-    findings = []
-    skipped_tools = []
-
-    # rust-analyzer
-    if "rust-analyzer" in skip:
-        skipped_tools.append({"tool": "rust-analyzer", "reason": "skipped by user"})
-    elif not has_tidy:
-        skipped_tools.append({"tool": "rust-analyzer", "reason": "not installed"})
-    elif not cc_path:
-        skipped_tools.append({
-            "tool": "rust-analyzer",
-            "reason": "no compile_commands.json found",
-        })
+    if tools_available["cargo"]:
+        cargo_metadata = _run_cargo_metadata(project_root)
     else:
-        findings.extend(_run_clang_tidy(files, cc_path, project_root))
+        skipped.append({"tool": "cargo metadata", "reason": "cargo is not installed"})
 
-    # cargo clippy
-    if "cargo clippy" in skip:
-        skipped_tools.append({"tool": "cargo clippy", "reason": "skipped by user"})
-    elif not has_cargo clippy:
-        skipped_tools.append({"tool": "cargo clippy", "reason": "not installed"})
+    if not run_clippy:
+        skipped.append(
+            {
+                "tool": "clippy",
+                "reason": (
+                    "not run by default -- clippy compiles the crate, which "
+                    "executes build.rs and proc-macros; pass --run-clippy to "
+                    "opt in"
+                ),
+            }
+        )
+    elif not tools_available["clippy"]:
+        skipped.append({"tool": "clippy", "reason": "cargo-clippy is not installed"})
     else:
-        findings.extend(_run_cargo clippy(files, project_root, cc_path))
+        clippy_findings, error = _run_clippy(project_root, project_root)
+        if error is not None:
+            skipped.append({"tool": "clippy", "reason": error})
+        else:
+            findings.extend(clippy_findings)
 
-    by_tool = defaultdict(int)
-    by_severity = defaultdict(int)
-    for f in findings:
-        by_tool[f["tool"]] += 1
-        by_severity[f["severity"]] += 1
+    # Detection-only tools: report availability and the manual command.
+    for tool, available, command in (
+        ("miri", tools_available["miri"], "cargo +nightly miri test"),
+        ("cargo-geiger", tools_available["cargo_geiger"], "cargo geiger"),
+        ("cargo-expand", tools_available["cargo_expand"], "cargo expand"),
+    ):
+        skipped.append(
+            {
+                "tool": tool,
+                "reason": (
+                    f"detection only -- run manually: `{command}`"
+                    if available
+                    else "not installed"
+                ),
+            }
+        )
+
+    by_lint: dict[str, int] = defaultdict(int)
+    by_severity: dict[str, int] = defaultdict(int)
+    for finding in findings:
+        by_lint[finding["lint"]] += 1
+        by_severity[finding["severity"]] += 1
 
     return {
         "project_root": str(project_root),
         "scan_root": str(scan_root),
-        "files_analyzed": len(files),
-        "tools_available": {
-            "clang_tidy": has_tidy,
-            "cargo clippy": has_cargo clippy,
-        },
-        "compile_commands": str(cc_path) if cc_path else None,
+        "tools_available": tools_available,
+        "cargo_metadata": cargo_metadata,
         "findings": findings,
         "summary": {
             "total_findings": len(findings),
-            "by_tool": dict(by_tool),
+            "by_lint": dict(by_lint),
             "by_severity": dict(by_severity),
         },
-        "skipped_tools": skipped_tools,
+        "skipped_tools": skipped,
     }
 
 
 def main() -> None:
     try:
-        max_files = 0
-        compile_commands = None
-        skip_tools: set[str] = set()
-        only_tools: set[str] | None = None
-        positional: list[str] = []
         argv = sys.argv[1:]
+        target = "."
+        max_files = 0
+        run_clippy = False
         i = 0
         while i < len(argv):
             if argv[i] == "--max-files" and i + 1 < len(argv):
-                max_files = int(argv[i + 1])
+                try:
+                    max_files = int(argv[i + 1])
+                except ValueError:
+                    pass
                 i += 2
-            elif argv[i] == "--compile-commands" and i + 1 < len(argv):
-                compile_commands = argv[i + 1]
-                i += 2
-            elif argv[i] == "--skip" and i + 1 < len(argv):
-                skip_tools = set(argv[i + 1].split(","))
-                i += 2
-            elif argv[i] == "--tools" and i + 1 < len(argv):
-                only_tools = set(argv[i + 1].split(","))
-                i += 2
-            elif argv[i].startswith("--"):
+            elif argv[i] == "--run-clippy":
+                run_clippy = True
+                i += 1
+            elif not argv[i].startswith("-"):
+                target = argv[i]
                 i += 1
             else:
-                positional.append(argv[i])
                 i += 1
-        target = positional[0] if positional else "."
-        result = analyze(
-            target, max_files=max_files,
-            compile_commands=compile_commands,
-            skip_tools=skip_tools if skip_tools else None,
-            only_tools=only_tools,
-        )
+        result = analyze(target, max_files=max_files, run_clippy=run_clippy)
         json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
-    except Exception as e:
-        json.dump({"error": str(e), "type": type(e).__name__},
-                  sys.stdout, indent=2)
+    except Exception as e:  # noqa: BLE001 -- top-level guard, emit JSON error
+        json.dump({"error": str(e), "type": type(e).__name__}, sys.stdout, indent=2)
         sys.stdout.write("\n")
         sys.exit(1)
 

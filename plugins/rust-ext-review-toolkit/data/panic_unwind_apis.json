@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "_comment": "Panic-prone Rust constructs, used by panic-safety-checker. A panic that crosses the FFI boundary is caught by PyO3 (raised as PanicException) but is almost never intended; a panic crossing a non-PyO3 extern \"C\" boundary aborts the process.",
+  "unwrap_methods": [
+    "unwrap",
+    "expect",
+    "unwrap_unchecked",
+    "expect_err",
+    "unwrap_err"
+  ],
+  "panic_macros": [
+    "panic",
+    "unimplemented",
+    "todo",
+    "unreachable",
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "debug_assert_eq",
+    "debug_assert_ne"
+  ],
+  "panicking_slice_methods": [
+    "swap_remove",
+    "split_at",
+    "split_at_mut",
+    "drain",
+    "chunks",
+    "chunks_exact"
+  ],
+  "notes": {
+    "index_expression": "Indexing a slice/Vec/array with `[i]` panics on out-of-bounds; flagged via the index_expression node. `.get(i)` returns Option instead.",
+    "arithmetic": "a + b / a - b / a * b / a << b panic on overflow when overflow-checks are enabled (the default for debug builds). Worth a CONSIDER note, not a FIX.",
+    "division": "a / b and a % b panic on division by zero.",
+    "unwrap_unchecked": "`unwrap_unchecked` is unsafe and is UB (not a panic) on the None/Err case -- belongs to unsafe-block-auditor as well.",
+    "panicking_slice_methods": "Vec::remove/insert were excluded: the names collide with non-panicking HashMap/HashSet/BTreeMap methods, and a syntactic scanner cannot tell the receiver type apart -- they were pure false-positive noise."
+  }
+}

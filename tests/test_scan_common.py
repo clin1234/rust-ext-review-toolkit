@@ -1,272 +1,182 @@
-"""Tests for scan_common.py shared utilities."""
+"""Tests for scan_common — shared scanner utilities."""
 
-import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(
-    0,
-    str(
-        Path(__file__).resolve().parent.parent
-        / "plugins"
-        / "rust-ext-review-toolkit"
-        / "scripts"
-    ),
-)
+from helpers import TempRustExtension, import_script
 
-import tree_sitter
-import tree_sitter_rust
-
-from scan_common import (
-    deduplicate_findings,
-    extract_nearby_comments,
-    has_safety_annotation,
-    is_in_region,
-    make_finding,
-    parse_common_args,
-)
+sc = import_script("scan_common")
+rtu = import_script("rust_ts_utils")
 
 
-_C_LANG = tree_sitter.Language(tree_sitter_rust.language())
-_C_PARSER = tree_sitter.Parser(_C_LANG)
+class TestProjectRoot(unittest.TestCase):
+    def test_finds_cargo_toml_root(self):
+        with TempRustExtension({"src/lib.rs": "fn x() {}"}) as ext:
+            found = sc.find_project_root(ext.root / "src" / "lib.rs")
+            self.assertEqual(found.resolve(), ext.root.resolve())
 
 
-class TestDeduplicateFindings(unittest.TestCase):
-    """Tests for deduplicate_findings()."""
+class TestDiscoverRustFiles(unittest.TestCase):
+    def test_finds_rs_skips_target(self):
+        with TempRustExtension(
+            {
+                "src/lib.rs": "fn a() {}",
+                "src/util.rs": "fn b() {}",
+                "target/debug/junk.rs": "fn junk() {}",
+            }
+        ) as ext:
+            files = sc.discover_rust_files(ext.root)
+            rel = sorted(str(p.relative_to(ext.root)) for p in files)
+        self.assertEqual(rel, ["src/lib.rs", "src/util.rs"])
 
-    def test_empty_list(self):
-        self.assertEqual(deduplicate_findings([]), [])
-
-    def test_single_finding(self):
-        f = {"type": "leak", "file": "a.c", "detail": "leaked ref at line 10"}
-        result = deduplicate_findings([f])
-        self.assertEqual(len(result), 1)
-        self.assertNotIn("duplicate_count", result[0])
-
-    def test_two_duplicates_grouped(self):
-        f1 = {
-            "type": "leak",
-            "file": "a.c",
-            "line": 10,
-            "detail": "leaked 'x' at line 10",
-        }
-        f2 = {
-            "type": "leak",
-            "file": "a.c",
-            "line": 20,
-            "detail": "leaked 'y' at line 20",
-        }
-        result = deduplicate_findings([f1, f2])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["duplicate_count"], 1)
-        self.assertEqual(len(result[0]["duplicate_locations"]), 1)
-
-    def test_different_types_not_grouped(self):
-        f1 = {"type": "leak", "file": "a.c", "detail": "leaked at line 10"}
-        f2 = {"type": "null_deref", "file": "a.c", "detail": "leaked at line 10"}
-        result = deduplicate_findings([f1, f2])
-        self.assertEqual(len(result), 2)
-
-    def test_different_files_not_grouped(self):
-        f1 = {"type": "leak", "file": "a.c", "detail": "leaked at line 10"}
-        f2 = {"type": "leak", "file": "b.c", "detail": "leaked at line 10"}
-        result = deduplicate_findings([f1, f2])
-        self.assertEqual(len(result), 2)
-
-    def test_normalization_strips_line_numbers(self):
-        f1 = {"type": "leak", "file": "a.c", "detail": "leaked at line 10"}
-        f2 = {"type": "leak", "file": "a.c", "detail": "leaked at line 99"}
-        result = deduplicate_findings([f1, f2])
-        self.assertEqual(len(result), 1)
-
-    def test_normalization_strips_variable_names(self):
-        f1 = {"type": "leak", "file": "a.c", "detail": "leaked 'foo'"}
-        f2 = {"type": "leak", "file": "a.c", "detail": "leaked 'bar'"}
-        result = deduplicate_findings([f1, f2])
-        self.assertEqual(len(result), 1)
+    def test_max_files_cap(self):
+        with TempRustExtension({"src/a.rs": "", "src/b.rs": "", "src/c.rs": ""}) as ext:
+            self.assertEqual(len(sc.discover_rust_files(ext.root, max_files=2)), 2)
 
 
-class TestHasSafetyAnnotation(unittest.TestCase):
-    """Tests for has_safety_annotation()."""
+class TestLoadDataFile(unittest.TestCase):
+    def test_loads_pyo3_api_tables(self):
+        data = sc.load_data_file("pyo3_api_tables.json")
+        self.assertIn("apis", data)
+        self.assertIn("python_with_gil", data["apis"])
 
-    def test_cext_safe_annotation(self):
-        self.assertTrue(has_safety_annotation(["/* cext-safe: intentional leak */"]))
+    def test_loads_non_send_sync_types(self):
+        data = sc.load_data_file("non_send_sync_types.json")
+        self.assertTrue(any(t["path"] == "std::rc::Rc" for t in data["types"]))
 
-    def test_nolint_annotation(self):
-        self.assertTrue(has_safety_annotation(["// NOLINT"]))
-
-    def test_by_design_annotation(self):
-        self.assertTrue(has_safety_annotation(["/* by design: we skip the check */"]))
-
-    def test_no_annotation(self):
-        self.assertFalse(has_safety_annotation(["/* allocate buffer */"]))
-
-    def test_empty_comments(self):
-        self.assertFalse(has_safety_annotation([]))
-
-    def test_deliberately_keyword(self):
-        self.assertTrue(has_safety_annotation(["// deliberately not freed"]))
-
-
-class TestExtractNearbyComments(unittest.TestCase):
-    """Tests for extract_nearby_comments()."""
-
-    def _parse(self, source: str):
-        source_bytes = source.encode("utf-8")
-        tree = _C_PARSER.parse(source_bytes)
-        return source_bytes, tree
-
-    def test_finds_comment_on_same_line(self):
-        src = "int x = 1; // safety: intentional\n"
-        src_bytes, tree = self._parse(src)
-        comments = extract_nearby_comments(src_bytes, tree, line=1, radius=1)
-        self.assertTrue(any("safety:" in c for c in comments))
-
-    def test_finds_comment_within_radius(self):
-        src = (
-            "// by design: no check\n"
-            "int f(void) {\n"
-            "    return 0;\n"
-            "}\n"
-        )
-        src_bytes, tree = self._parse(src)
-        comments = extract_nearby_comments(src_bytes, tree, line=3, radius=5)
-        self.assertTrue(any("by design" in c for c in comments))
-
-    def test_ignores_far_comment(self):
-        src = (
-            "// unrelated comment\n"
-            "int a = 1;\n"
-            "int b = 2;\n"
-            "int c = 3;\n"
-            "int d = 4;\n"
-            "int e = 5;\n"
-            "int f = 6;\n"
-            "int g = 7;\n"
-            "int h = 8;\n"
-            "int i = 9;\n"
-        )
-        src_bytes, tree = self._parse(src)
-        comments = extract_nearby_comments(src_bytes, tree, line=10, radius=2)
-        self.assertFalse(any("unrelated" in c for c in comments))
-
-    def test_no_comments_in_source(self):
-        src = "int main(void) { return 0; }\n"
-        src_bytes, tree = self._parse(src)
-        self.assertEqual(extract_nearby_comments(src_bytes, tree, line=1), [])
-
-
-class TestHasSafetyAnnotationExtended(unittest.TestCase):
-    """Cext-specific safety keywords beyond the original minimal test set."""
-
-    def test_gil_held(self):
-        self.assertTrue(has_safety_annotation(["/* gil held */"]))
-        self.assertTrue(has_safety_annotation(["// gil-held"]))
-
-    def test_already_locked(self):
-        self.assertTrue(has_safety_annotation(["// already locked"]))
-
-    def test_refcount_safe(self):
-        self.assertTrue(has_safety_annotation(["/* refcount safe here */"]))
-
-    def test_borrowed_ok(self):
-        self.assertTrue(has_safety_annotation(["// borrowed ok: container lives"]))
-
-    def test_thread_safe(self):
-        self.assertTrue(has_safety_annotation(["// thread-safe access"]))
-
-
-class TestIsInRegion(unittest.TestCase):
-    """Tests for is_in_region()."""
-
-    def test_empty_regions(self):
-        self.assertFalse(is_in_region(10, []))
-
-    def test_inside_region(self):
-        self.assertTrue(is_in_region(15, [(10, 20)]))
-
-    def test_on_start_boundary(self):
-        self.assertTrue(is_in_region(10, [(10, 20)]))
-
-    def test_on_end_boundary_excluded(self):
-        self.assertFalse(is_in_region(20, [(10, 20)]))
-
-    def test_outside_region(self):
-        self.assertFalse(is_in_region(25, [(10, 20)]))
-
-    def test_multiple_regions(self):
-        self.assertTrue(is_in_region(35, [(10, 20), (30, 40)]))
-        self.assertFalse(is_in_region(25, [(10, 20), (30, 40)]))
+    def test_missing_file_returns_empty(self):
+        self.assertEqual(sc.load_data_file("does_not_exist.json"), {})
 
 
 class TestMakeFinding(unittest.TestCase):
-    """Tests for make_finding()."""
-
-    def test_minimal_required_fields(self):
-        f = make_finding(
-            "leak",
-            classification="FIX",
-            severity="high",
-            detail="leaked ref",
+    def test_shape(self):
+        f = sc.make_finding(
+            "unsafe_ffi_call",
+            classification="CONSIDER",
+            description="raw ffi call",
+            file="src/lib.rs",
+            line=12,
+            category="soundness",
         )
-        self.assertEqual(f["type"], "leak")
-        self.assertEqual(f["classification"], "FIX")
-        self.assertEqual(f["severity"], "high")
-        self.assertEqual(f["confidence"], "high")
-        self.assertEqual(f["detail"], "leaked ref")
-        self.assertEqual(f["function"], "")
-        self.assertEqual(f["line"], 0)
+        self.assertEqual(f["type"], "unsafe_ffi_call")
+        self.assertEqual(f["classification"], "CONSIDER")
+        self.assertEqual(f["confidence"], "HIGH")
+        self.assertEqual(f["line"], 12)
+        self.assertEqual(f["category"], "soundness")
+        self.assertEqual(f["details"], {})
 
-    def test_with_extras(self):
-        f = make_finding(
-            "borrowed_ref_across_call",
-            function="my_func",
-            line=42,
-            classification="FIX",
-            severity="high",
-            confidence="medium",
-            detail="borrowed ref used after call",
-            api_call="PyList_GetItem",
-            variable="item",
-        )
-        self.assertEqual(f["function"], "my_func")
-        self.assertEqual(f["line"], 42)
-        self.assertEqual(f["confidence"], "medium")
-        self.assertEqual(f["api_call"], "PyList_GetItem")
-        self.assertEqual(f["variable"], "item")
 
-    def test_consistent_key_ordering(self):
-        f = make_finding(
-            "t", classification="FIX", severity="low", detail="d",
+class TestDeduplicate(unittest.TestCase):
+    def test_collapses_similar(self):
+        findings = [
+            sc.make_finding(
+                "t", classification="FIX", description="bug at line 10", file="a.rs"
+            ),
+            sc.make_finding(
+                "t", classification="FIX", description="bug at line 22", file="a.rs"
+            ),
+        ]
+        deduped = sc.deduplicate_findings(findings)
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(deduped[0]["duplicate_count"], 1)
+
+    def test_keeps_distinct(self):
+        findings = [
+            sc.make_finding("t1", classification="FIX", description="x", file="a.rs"),
+            sc.make_finding("t2", classification="FIX", description="y", file="a.rs"),
+        ]
+        self.assertEqual(len(sc.deduplicate_findings(findings)), 2)
+
+
+class TestRelativePath(unittest.TestCase):
+    def test_under_root(self):
+        self.assertEqual(
+            sc.relative_path(Path("/crate/src/lib.rs"), Path("/crate")),
+            "src/lib.rs",
         )
-        expected_keys = {
-            "type", "function", "line", "classification",
-            "severity", "confidence", "detail",
-        }
-        self.assertEqual(set(f.keys()), expected_keys)
+
+    def test_outside_root_returns_absolute(self):
+        self.assertEqual(
+            sc.relative_path(Path("/other/x.rs"), Path("/crate")), "/other/x.rs"
+        )
+
+
+class TestBuildReport(unittest.TestCase):
+    _DISCOVERY = {
+        "project_root": "/crate",
+        "scan_root": "/crate",
+        "crate_name": "demo",
+        "module_name": "demo",
+        "pyo3_version": "0.28",
+        "pyo3_features": ["extension-module"],
+        "python_floor": None,
+        "build_backend": "cargo",
+        "free_threading_target": False,
+        "source_files": ["src/lib.rs"],
+    }
+
+    def test_envelope_shape(self):
+        findings = [
+            sc.make_finding("t1", classification="FIX", description="a"),
+            sc.make_finding("t1", classification="CONSIDER", description="b"),
+            sc.make_finding("t2", classification="FIX", description="c"),
+        ]
+        report = sc.build_report(self._DISCOVERY, findings, functions_analyzed=7)
+        self.assertEqual(report["project_root"], "/crate")
+        self.assertEqual(report["functions_analyzed"], 7)
+        self.assertEqual(report["findings"], findings)
+        self.assertEqual(report["crate_info"]["crate_name"], "demo")
+        self.assertEqual(report["crate_info"]["pyo3_version"], "0.28")
+        self.assertTrue(report["crate_info"]["tree_sitter_available"])
+
+    def test_summary_counts(self):
+        findings = [
+            sc.make_finding("t1", classification="FIX", description="a"),
+            sc.make_finding("t1", classification="CONSIDER", description="b"),
+            sc.make_finding("t2", classification="FIX", description="c"),
+        ]
+        report = sc.build_report(self._DISCOVERY, findings)
+        self.assertEqual(report["summary"]["by_type"], {"t1": 2, "t2": 1})
+        self.assertEqual(
+            report["summary"]["by_classification"], {"FIX": 2, "CONSIDER": 1}
+        )
+
+    def test_empty_findings(self):
+        report = sc.build_report(self._DISCOVERY, [])
+        self.assertEqual(report["findings"], [])
+        self.assertEqual(report["summary"]["by_type"], {})
 
 
 class TestParseCommonArgs(unittest.TestCase):
-    """Tests for parse_common_args()."""
+    def test_target_and_max_files(self):
+        self.assertEqual(
+            sc.parse_common_args(["crate", "--max-files", "7"]), ("crate", 7)
+        )
 
-    def test_no_args(self):
-        target, max_files = parse_common_args([])
-        self.assertEqual(target, ".")
-        self.assertEqual(max_files, 0)
+    def test_defaults(self):
+        self.assertEqual(sc.parse_common_args([]), (".", 0))
 
-    def test_path_only(self):
-        target, max_files = parse_common_args(["/some/path"])
-        self.assertEqual(target, "/some/path")
-        self.assertEqual(max_files, 0)
+    def test_flag_before_target(self):
+        self.assertEqual(sc.parse_common_args(["--max-files", "3", "x"]), ("x", 3))
 
-    def test_max_files(self):
-        target, max_files = parse_common_args(["path", "--max-files", "10"])
-        self.assertEqual(target, "path")
-        self.assertEqual(max_files, 10)
 
-    def test_invalid_max_files(self):
-        with self.assertRaises(SystemExit):
-            parse_common_args(["--max-files", "abc"])
+class TestSuppression(unittest.TestCase):
+    def test_safety_comment_suppresses(self):
+        code = (
+            "fn f() {\n"
+            "    // SAFETY: obj is valid and the GIL is held\n"
+            "    unsafe { g(); }\n"
+            "}\n"
+        )
+        src = code.encode("utf-8")
+        tree = rtu.parse_bytes(src)
+        self.assertTrue(sc.is_suppressed_by_comment(src, tree, 3))
+
+    def test_plain_comment_does_not_suppress(self):
+        code = "fn f() {\n    // just a note\n    unsafe { g(); }\n}\n"
+        src = code.encode("utf-8")
+        tree = rtu.parse_bytes(src)
+        self.assertFalse(sc.is_suppressed_by_comment(src, tree, 3))
 
 
 if __name__ == "__main__":

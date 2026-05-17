@@ -1,82 +1,54 @@
-"""Tests for run_external_tools.py — external static analysis tool integration."""
+"""Tests for run_external_tools — the external Rust-tooling baseline.
 
-import shutil
+These tests are environment-tolerant: they assert the report *shape* and the
+clippy opt-in policy, not the output of `cargo` (which may or may not be
+installed).
+"""
+
 import unittest
-from helpers import import_script, TempExtension, MINIMAL_EXTENSION
 
-ext_tools = import_script("run_external_tools")
+from fixtures import MINIMAL_PYO3_CRATE
+from helpers import TempRustExtension, import_script
+
+ret = import_script("run_external_tools")
 
 
-class TestRunExternalTools(unittest.TestCase):
-    """Test external tool wrapper script."""
+def run(code: str = MINIMAL_PYO3_CRATE, **kw) -> dict:
+    with TempRustExtension({"src/lib.rs": code}) as ext:
+        return ret.analyze(str(ext.root), **kw)
 
-    def test_analyze_returns_envelope(self):
-        """analyze() returns standard envelope structure."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            result = ext_tools.analyze(str(root))
-            self.assertIn("findings", result)
-            self.assertIn("summary", result)
-            self.assertIn("tools_available", result)
-            self.assertIn("skipped_tools", result)
-            self.assertIn("files_analyzed", result)
-            self.assertIn("compile_commands", result)
 
-    def test_tool_availability_detection(self):
-        """Tool availability correctly detected."""
-        self.assertIsInstance(ext_tools._tool_available("rust-analyzer"), bool)
-        self.assertIsInstance(ext_tools._tool_available("cargo clippy"), bool)
-        self.assertFalse(ext_tools._tool_available("nonexistent_tool_xyz"))
+class TestEnvelope(unittest.TestCase):
+    def test_report_shape(self):
+        result = run()
+        for key in (
+            "project_root",
+            "tools_available",
+            "cargo_metadata",
+            "findings",
+            "summary",
+            "skipped_tools",
+        ):
+            self.assertIn(key, result)
+        self.assertIsInstance(result["tools_available"], dict)
+        self.assertIn("cargo", result["tools_available"])
+        self.assertIsInstance(result["findings"], list)
 
-    def test_missing_tool_graceful(self):
-        """Missing tool produces skip note, not error."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            result = ext_tools.analyze(
-                str(root), skip_tools={"rust-analyzer", "cargo clippy"})
-            self.assertIsInstance(result["findings"], list)
-            self.assertEqual(len(result["findings"]), 0)
-            self.assertEqual(len(result["skipped_tools"]), 2)
+    def test_clippy_is_opt_in(self):
+        # Clippy compiles the crate (executes build scripts); it must never
+        # run unless --run-clippy / run_clippy=True is given.
+        result = run(run_clippy=False)
+        clippy_skips = [s for s in result["skipped_tools"] if s["tool"] == "clippy"]
+        self.assertEqual(len(clippy_skips), 1)
+        self.assertEqual(
+            [f for f in result["findings"] if f.get("tool") == "clippy"], []
+        )
 
-    def test_compile_commands_search(self):
-        """compile_commands.json found in project root."""
-        cc_json = '[{"directory":".","file":"myext.c","command":"cc -c myext.c"}]'
-        with TempExtension({
-            "myext.c": MINIMAL_EXTENSION,
-            "compile_commands.json": cc_json,
-        }) as root:
-            cc = ext_tools._find_compile_commands(root, None)
-            self.assertIsNotNone(cc)
-
-    def test_compile_commands_not_found(self):
-        """No compile_commands.json returns None."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            cc = ext_tools._find_compile_commands(root, None)
-            self.assertIsNone(cc)
-
-    def test_skip_tools_flag(self):
-        """--skip flag prevents tool execution."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            result = ext_tools.analyze(
-                str(root), skip_tools={"rust-analyzer", "cargo clippy"})
-            skipped_names = [s["tool"] for s in result["skipped_tools"]]
-            self.assertIn("rust-analyzer", skipped_names)
-            self.assertIn("cargo clippy", skipped_names)
-
-    @unittest.skipUnless(shutil.which("cargo clippy"), "cargo clippy not installed")
-    def test_cargo clippy_runs_on_c_file(self):
-        """cargo clippy runs and produces output on C file."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            result = ext_tools.analyze(
-                str(root), skip_tools={"rust-analyzer"})
-            self.assertTrue(result["tools_available"]["cargo clippy"])
-
-    def test_output_summary_structure(self):
-        """Summary has expected sub-fields."""
-        with TempExtension({"myext.c": MINIMAL_EXTENSION}) as root:
-            result = ext_tools.analyze(str(root))
-            summary = result["summary"]
-            self.assertIn("total_findings", summary)
-            self.assertIn("by_tool", summary)
-            self.assertIn("by_severity", summary)
+    def test_detection_only_tools_listed(self):
+        result = run()
+        skipped_tools = {s["tool"] for s in result["skipped_tools"]}
+        for tool in ("miri", "cargo-geiger", "cargo-expand"):
+            self.assertIn(tool, skipped_tools)
 
 
 if __name__ == "__main__":

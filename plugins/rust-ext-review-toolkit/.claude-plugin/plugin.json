@@ -1,8 +1,8 @@
 {
   "name": "rust-ext-review-toolkit",
   "version": "0.0.1",
-  "description": "CPython Rust extension analysis agents: refcount auditing (with borrowed-ref-across-callback detection), error path analysis, NULL safety scanning, GIL discipline checking, module state validation, type slot correctness, stable ABI compliance, version compatibility scanning, PyErr_Clear auditing, resource lifecycle tracking, Python parity checking, complexity measurement, and git history analysis. Tree-sitter-powered Rust parsing with optional rust-analyzer/cargo clippy integration.",
+  "description": "Analysis agents for Python extensions written in Rust with PyO3. Safety-critical: unsafe-block soundness auditing, PyResult propagation and exception clobbering, GIL discipline (attach/detach, foreign callbacks, free-threading), panic safety across the FFI boundary. PyO3-specific: #[pyclass] Send/Sync/frozen trait bounds, #[pymethods] protocol correctness (__traverse__/__clear__, __richcmp__), #[pymodule] init, Bound/Py/Borrowed lifetime handles. Plus PyO3 version compatibility, complexity measurement, git history analysis, and Rust/Python parity checking. Tree-sitter-rust parsing with optional clippy/miri/cargo-expand integration.",
   "author": {
-    "name": "Danzin"
+    "name": "Charlie Lin and Danzin"
   }
 }

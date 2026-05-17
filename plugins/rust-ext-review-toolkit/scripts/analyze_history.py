@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
-"""Analyze git history for churn metrics, commit classification, and co-change data.
+"""Analyze git history of a Rust/PyO3 extension for churn and bug patterns.
 
-Adapted from code-review-toolkit's version. Uses Tree-sitter in addition to
-Python AST for C files.
+Adapted from code-review-toolkit / cext-review-toolkit's `analyze_history.py`.
+Commit classification keywords are tuned for Rust/PyO3 (design SS3.2.11), and
+function-boundary detection uses Tree-sitter-rust. Co-change coupling analysis
+is dropped -- Rust extensions are small and the signal is noisy at that scale.
+
+Output (consumed by the git-history-analyzer agent):
+  - file_churn / function_churn -- the churn x quality risk matrix
+  - recent_fixes -- bug/safety/panic/concurrency commits, with diffs, for
+    similar-bug detection (the crown-jewel capability)
+  - recent_migrations -- PyO3-migration commits, with diffs
+
+Takes `argv` (not the `(target, max_files)` convention) to match
+code-review-toolkit.
 
 Usage:
     python analyze_history.py [path] [options]
 
 Options:
-    --days N          Analyze last N days (default: 90)
+    --days N          Analyze last N days (default: 365)
     --since DATE      Start date (ISO format, overrides --days)
     --until DATE      End date (ISO format, default: today)
     --last N          Analyze exactly the last N commits
     --max-commits N   Cap total commits analyzed (default: 2000)
+    --max-files N     Cap files scanned for function boundaries
     --workers N       Parallel git subprocess workers (default: 8)
     --no-function     Skip function-level churn (file-level only, faster)
 """
@@ -23,98 +35,83 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tree_sitter_utils import parse_bytes_for_file, extract_functions
-from scan_common import find_project_root
+from rust_ts_utils import extract_fn_items, parse_bytes  # noqa: E402
+from scan_common import find_project_root  # noqa: E402
 
+# Commit categories, tuned for Rust/PyO3. First match wins; the Rust-specific
+# categories precede the generic `bugfix` so "fix unsafe UB" ranks as safety.
 CLASSIFICATION_RULES: list[tuple[str, list[str]]] = [
     (
-        "fix",
+        "safety",
         [
-            "fix",
-            "bug",
-            "patch",
-            "resolve",
-            "issue",
-            "crash",
-            "error",
-            "broken",
-            "repair",
-            "correct",
-            "regression",
-            "workaround",
-            "hotfix",
-            "segfault",
-            "leak",
-            "null",
-            "refcount",
-            "decref",
+            "unsafe",
+            "soundness",
+            "miri",
+            "use-after-free",
+            "use after free",
+            "data race",
+            "undefined behavior",
+            "undefined behaviour",
+        ],
+    ),
+    ("panic", ["panic", "unwrap", ".expect(", "unwind", "abort"]),
+    (
+        "concurrency",
+        [
+            "frozen",
+            "free-thread",
+            "freethread",
+            "free thread",
+            "gil_used",
+            "thread-safe",
+            "thread safety",
+            "deadlock",
+            "send + sync",
+            "non-send",
         ],
     ),
     (
-        "docs",
-        ["doc", "readme", "comment", "typo", "spelling", "changelog", "documentation"],
-    ),
-    ("test", ["test", "coverage", "assert", "mock", "fixture"]),
-    (
-        "refactor",
+        "migration",
         [
-            "refactor",
-            "clean",
-            "simplify",
-            "reorganize",
-            "restructure",
-            "rename",
-            "move",
-            "extract",
-            "deduplicate",
-            "inline",
+            "clone_ref",
+            "into_pyobject",
+            "deprecat",
+            "migrat",
+            "pyo3 0.",
+            "pyo3 upgrade",
+            "bound api",
+            "_bound(",
         ],
     ),
+    (
+        "bugfix",
+        ["fix", "bug", "crash", "segfault", "leak", "regression", "hotfix", "broken"],
+    ),
+    ("docs", ["doc", "readme", "typo", "changelog", "comment"]),
+    ("test", ["test", "coverage", "fixture", "tsan"]),
     (
         "chore",
-        [
-            "bump",
-            "dependency",
-            "update",
-            "upgrade",
-            "ci",
-            "config",
-            "lint",
-            "format",
-            "version",
-            "release",
-            "merge",
-            "revert",
-        ],
+        ["bump", "dependency", "ci", "lint", "format", "release", "merge", "revert"],
     ),
-    (
-        "feature",
-        [
-            "add",
-            "implement",
-            "new",
-            "feature",
-            "introduce",
-            "support",
-            "enable",
-            "create",
-        ],
-    ),
+    ("feature", ["add", "implement", "new feature", "introduce", "support"]),
 ]
+
+# Commit categories whose diffs feed similar-bug detection.
+_BUG_TYPES = frozenset({"bugfix", "safety", "panic", "concurrency"})
 
 _GIT_TIMEOUT = 30
 _SCRIPT_START: float = 0.0
 _SCRIPT_TIMEOUT = 300
-_MAX_DIFF_LINES_FIX = 150
-_MAX_DIFF_LINES_REFACTOR = 80
+_MAX_DIFF_LINES = 150
 
 
 def classify_commit(message: str) -> str:
+    """Classify a commit message into a Rust/PyO3-tuned category."""
     msg_lower = message.lower()
     for category, keywords in CLASSIFICATION_RULES:
         for keyword in keywords:
@@ -123,9 +120,9 @@ def classify_commit(message: str) -> str:
     return "unknown"
 
 
-def _run_git(args, cwd, timeout=_GIT_TIMEOUT):
+def _run_git(args: list[str], cwd: Path, timeout: int = _GIT_TIMEOUT):
     return subprocess.run(
-        ["git"] + args,
+        ["git", *args],
         capture_output=True,
         text=True,
         cwd=str(cwd),
@@ -133,9 +130,9 @@ def _run_git(args, cwd, timeout=_GIT_TIMEOUT):
     )
 
 
-def _run_git_streaming(args, cwd):
+def _run_git_streaming(args: list[str], cwd: Path):
     return subprocess.Popen(
-        ["git"] + args,
+        ["git", *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -162,19 +159,22 @@ def _get_file_line_count(filepath: Path) -> int:
         return 0
 
 
-def parse_git_log(lines, max_commits, project_root=None):
-    commits = []
-    file_changes = {}
-    current_commit = None
+def parse_git_log(lines, max_commits: int, project_root: Path | None = None):
+    """Parse `git log --numstat` output into commits and per-file churn."""
+    commits: list[dict] = []
+    file_changes: dict[str, dict] = {}
+    current_commit: dict | None = None
     commit_count = 0
+    date_str = ""
 
-    for line in lines:
-        line = line.rstrip("\n")
+    for raw in lines:
+        line = raw.rstrip("\n")
         if line.startswith("COMMIT:"):
             if current_commit is not None:
                 commits.append(current_commit)
             commit_count += 1
             if commit_count > max_commits:
+                current_commit = None
                 break
             parts = line[7:].split("|", 3)
             if len(parts) < 4:
@@ -188,43 +188,35 @@ def parse_git_log(lines, max_commits, project_root=None):
                 "message": message,
                 "type": classify_commit(message),
                 "files": [],
-                "stats": [],
             }
         elif line.strip() and current_commit is not None:
             parts = line.split("\t", 2)
-            if len(parts) == 3:
-                added_str, removed_str, filepath = parts
-                try:
-                    added = int(added_str) if added_str != "-" else 0
-                    removed = int(removed_str) if removed_str != "-" else 0
-                except ValueError:
-                    continue
-                current_commit["files"].append(filepath)
-                current_commit["stats"].append(
-                    {
-                        "file": filepath,
-                        "added": added,
-                        "removed": removed,
-                    }
-                )
-                if filepath not in file_changes:
-                    file_changes[filepath] = {
-                        "commits": 0,
-                        "lines_added": 0,
-                        "lines_removed": 0,
-                        "authors": set(),
-                        "first_date": date_str,
-                        "last_date": date_str,
-                    }
-                fc = file_changes[filepath]
-                fc["commits"] += 1
-                fc["lines_added"] += added
-                fc["lines_removed"] += removed
-                fc["authors"].add(author)
-                if date_str < fc["first_date"]:
-                    fc["first_date"] = date_str
-                if date_str > fc["last_date"]:
-                    fc["last_date"] = date_str
+            if len(parts) != 3:
+                continue
+            added_str, removed_str, filepath = parts
+            try:
+                added = int(added_str) if added_str != "-" else 0
+                removed = int(removed_str) if removed_str != "-" else 0
+            except ValueError:
+                continue
+            current_commit["files"].append(filepath)
+            fc = file_changes.setdefault(
+                filepath,
+                {
+                    "commits": 0,
+                    "lines_added": 0,
+                    "lines_removed": 0,
+                    "authors": set(),
+                    "first_date": date_str,
+                    "last_date": date_str,
+                },
+            )
+            fc["commits"] += 1
+            fc["lines_added"] += added
+            fc["lines_removed"] += removed
+            fc["authors"].add(current_commit["author"])
+            fc["first_date"] = min(fc["first_date"], date_str)
+            fc["last_date"] = max(fc["last_date"], date_str)
 
     if current_commit is not None and commit_count <= max_commits:
         commits.append(current_commit)
@@ -251,7 +243,6 @@ def parse_git_log(lines, max_commits, project_root=None):
                 "last_modified": fc["last_date"],
             }
         )
-
     file_stats.sort(key=lambda x: x["commits"], reverse=True)
     return commits, file_stats
 
@@ -264,86 +255,30 @@ def _relative_scope(scan_root: Path, project_root: Path) -> str:
         return "."
 
 
-def get_function_boundaries(filepath: Path) -> list[dict]:
-    """Get function boundaries using Tree-sitter for C or AST for Python."""
-    if filepath.suffix in (".c", ".h"):
-        return _get_c_function_boundaries(filepath)
-    elif filepath.suffix == ".py":
-        return _get_py_function_boundaries(filepath)
-    return []
-
-
-def _get_c_function_boundaries(filepath: Path) -> list[dict]:
-    """Use Tree-sitter to get C function boundaries."""
+def _rust_function_boundaries(filepath: Path) -> list[dict]:
+    """Tree-sitter-rust function boundaries for one `.rs` file."""
     try:
         source_bytes = filepath.read_bytes()
-        tree = parse_bytes_for_file(source_bytes, filepath)
-        functions = extract_functions(tree, source_bytes)
-        return [
-            {
-                "name": f["name"],
-                "line_start": f["start_line"],
-                "line_end": f["end_line"],
-            }
-            for f in functions
-        ]
     except OSError:
         return []
+    tree = parse_bytes(source_bytes)
+    return [
+        {"name": f["name"], "line_start": f["start_line"], "line_end": f["end_line"]}
+        for f in extract_fn_items(tree, source_bytes)
+    ]
 
 
-def _get_py_function_boundaries(filepath: Path) -> list[dict]:
-    """Use Python AST to get Python function boundaries."""
-    import ast
-
-    try:
-        source = filepath.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, OSError):
-        return []
-
-    functions = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            end_lineno = getattr(node, "end_lineno", node.lineno)
-            functions.append(
-                {
-                    "name": node.name,
-                    "line_start": node.lineno,
-                    "line_end": end_lineno,
-                }
-            )
-    return functions
-
-
-def compute_function_churn(commits, scan_root, project_root, max_files=0, workers=8):
-    """Map diff hunks to function boundaries using Tree-sitter/AST.
-
-    Uses a ThreadPoolExecutor to run per-commit ``git show`` calls in
-    parallel, which is the dominant cost on large histories.
-    """
-    file_functions = {}
+def compute_function_churn(
+    commits, scan_root: Path, project_root: Path, max_files: int = 0, workers: int = 8
+):
+    """Map diff hunks to Rust function boundaries, parallelised over commits."""
+    exclude = {".git", "target", ".tox", ".venv", "venv", "__pycache__", "dist"}
     if scan_root.is_file():
-        all_files = [scan_root]
+        all_files = [scan_root] if scan_root.suffix == ".rs" else []
     else:
-        all_files = sorted(
-            p
-            for p in scan_root.rglob("*")
-            if p.is_file() and p.suffix in (".c", ".h", ".py")
-        )
+        all_files = sorted(p for p in scan_root.rglob("*.rs") if p.is_file())
 
-    exclude = {
-        ".git",
-        ".tox",
-        ".venv",
-        "venv",
-        "__pycache__",
-        "node_modules",
-        ".eggs",
-        "build",
-        "dist",
-    }
-
-    filtered = []
+    filtered: list[Path] = []
     for f in all_files:
         try:
             parts = set(f.relative_to(project_root).parts)
@@ -352,186 +287,134 @@ def compute_function_churn(commits, scan_root, project_root, max_files=0, worker
         if parts & exclude:
             continue
         filtered.append(f)
-
     if max_files > 0:
         filtered = filtered[:max_files]
 
+    file_functions: dict[str, list[dict]] = {}
     for f in filtered:
         try:
             rel_path = str(f.relative_to(project_root))
         except ValueError:
             rel_path = str(f)
-        boundaries = get_function_boundaries(f)
+        boundaries = _rust_function_boundaries(f)
         if boundaries:
             file_functions[rel_path] = boundaries
 
-    if not file_functions:
+    work_items = [
+        (commit["hash"], file_path)
+        for commit in commits
+        for file_path in commit["files"]
+        if file_path in file_functions
+    ]
+    if not work_items:
         return []
 
-    # Collect all (commit_hash, file_path) pairs that need diffs.
-    work_items: list[tuple[str, str]] = []
-    for commit in commits:
-        for file_path in commit["files"]:
-            if file_path in file_functions:
-                work_items.append((commit["hash"], file_path))
-
     def _fetch_hunk(item: tuple[str, str]) -> tuple[str, str, set[int]]:
-        """Fetch changed line numbers for one (commit, file) pair."""
         commit_hash, file_path = item
         try:
             diff_result = _run_git(
                 ["show", "--format=", "-U0", commit_hash, "--", file_path],
                 project_root,
             )
-            if diff_result.returncode != 0:
-                return commit_hash, file_path, set()
         except subprocess.TimeoutExpired:
             return commit_hash, file_path, set()
-
-        changed_lines: set[int] = set()
+        if diff_result.returncode != 0:
+            return commit_hash, file_path, set()
+        changed: set[int] = set()
         for diff_line in diff_result.stdout.splitlines():
             hunk = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff_line)
             if hunk:
                 start = int(hunk.group(1))
                 count = int(hunk.group(2)) if hunk.group(2) else 1
-                changed_lines.update(range(start, start + count))
-        return commit_hash, file_path, changed_lines
+                changed.update(range(start, start + count))
+        return commit_hash, file_path, changed
 
     func_commits: dict[tuple[str, str], set[str]] = defaultdict(set)
-    if not work_items:
-        return []
-
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        for commit_hash, file_path, changed_lines in pool.map(
-            _fetch_hunk, work_items
-        ):
+        for commit_hash, file_path, changed in pool.map(_fetch_hunk, work_items):
             if _check_script_timeout():
                 break
-            if not changed_lines:
+            if not changed:
                 continue
             for func in file_functions[file_path]:
-                func_range = set(range(func["line_start"], func["line_end"] + 1))
-                if changed_lines & func_range:
+                func_range = range(func["line_start"], func["line_end"] + 1)
+                if changed & set(func_range):
                     func_commits[(file_path, func["name"])].add(commit_hash)
 
     results = []
-    for (file_path, func_name), commit_hashes in func_commits.items():
-        boundaries = file_functions.get(file_path, [])
-        func_info = next((f for f in boundaries if f["name"] == func_name), None)
+    for (file_path, func_name), hashes in func_commits.items():
+        info = next(
+            (f for f in file_functions[file_path] if f["name"] == func_name), None
+        )
         results.append(
             {
                 "function": func_name,
                 "file": file_path,
-                "line_start": func_info["line_start"] if func_info else 0,
-                "line_end": func_info["line_end"] if func_info else 0,
-                "commits": len(commit_hashes),
+                "line_start": info["line_start"] if info else 0,
+                "line_end": info["line_end"] if info else 0,
+                "commits": len(hashes),
             }
         )
-
     results.sort(key=lambda x: x["commits"], reverse=True)
     return results
 
 
-def _truncate_diff(diff_text, max_lines):
+def _truncate_diff(diff_text: str, max_lines: int) -> str:
     lines = diff_text.splitlines()
     if len(lines) <= max_lines:
         return diff_text
     return "\n".join(lines[:max_lines]) + "\n[diff truncated]"
 
 
-def _fetch_one_diff(commit_hash, project_root, rel_scope, max_diff_lines):
-    """Fetch the diff for a single commit. Thread-safe."""
-    diff_args = ["show", "--format=", "--patch", commit_hash, "--"]
-    if rel_scope != ".":
-        diff_args.append(rel_scope)
-    try:
-        dr = _run_git(diff_args, project_root)
-        diff_text = dr.stdout if dr.returncode == 0 else ""
-    except subprocess.TimeoutExpired:
-        diff_text = "[diff unavailable: timeout]"
-    return commit_hash, _truncate_diff(diff_text, max_diff_lines)
-
-
 def get_commit_details(
-    commits, commit_type, project_root, scan_root, max_diff_lines, workers=8
-):
-    """Get details (including diffs) for commits of a given type.
-
-    Fetches diffs in parallel using a thread pool for speed.
-    """
-    typed = [c for c in commits if c["type"] == commit_type]
+    commits,
+    commit_types: frozenset[str],
+    project_root: Path,
+    scan_root: Path,
+    workers: int = 8,
+) -> list[dict]:
+    """Fetch details (with diffs) for commits whose type is in ``commit_types``."""
+    typed = [c for c in commits if c["type"] in commit_types]
     if not typed:
         return []
-
     rel_scope = _relative_scope(scan_root, project_root)
 
-    # Fetch all diffs in parallel.
+    def _fetch(commit_hash: str) -> tuple[str, str]:
+        diff_args = ["show", "--format=", "--patch", commit_hash, "--"]
+        if rel_scope != ".":
+            diff_args.append(rel_scope)
+        try:
+            dr = _run_git(diff_args, project_root)
+            diff_text = dr.stdout if dr.returncode == 0 else ""
+        except subprocess.TimeoutExpired:
+            diff_text = "[diff unavailable: timeout]"
+        return commit_hash, _truncate_diff(diff_text, _MAX_DIFF_LINES)
+
     diff_map: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = {
-            pool.submit(
-                _fetch_one_diff, c["hash"], project_root,
-                rel_scope, max_diff_lines,
-            ): c["hash"]
-            for c in typed
-        }
-        for future in as_completed(futures):
-            if _check_script_timeout():
-                pool.shutdown(wait=False, cancel_futures=True)
-                break
-            commit_hash, diff_text = future.result()
+        for commit_hash, diff_text in pool.map(_fetch, [c["hash"] for c in typed]):
             diff_map[commit_hash] = diff_text
 
-    # Assemble results in original commit order.
-    results = []
-    for commit in typed:
-        diff_text = diff_map.get(commit["hash"], "")
-        results.append(
-            {
-                "commit": commit["hash"],
-                "commit_short": commit["hash"][:7],
-                "message": commit["message"],
-                "date": commit["date"],
-                "author": commit["author"],
-                "files": commit["files"],
-                "diff": diff_text,
-            }
-        )
-    return results
+    return [
+        {
+            "commit": c["hash"],
+            "commit_short": c["hash"][:7],
+            "type": c["type"],
+            "message": c["message"],
+            "date": c["date"],
+            "author": c["author"],
+            "files": c["files"],
+            "diff": diff_map.get(c["hash"], ""),
+        }
+        for c in typed
+    ]
 
 
-def compute_co_change_clusters(commits, min_co_changes=3, max_pairs=30):
-    file_commit_counts = defaultdict(int)
-    co_changes = defaultdict(int)
-
-    for commit in commits:
-        files = sorted(set(commit["files"]))
-        for f in files:
-            file_commit_counts[f] += 1
-        for i in range(len(files)):
-            for j in range(i + 1, len(files)):
-                co_changes[(files[i], files[j])] += 1
-
-    results = []
-    for (a, b), count in co_changes.items():
-        if count >= min_co_changes:
-            results.append(
-                {
-                    "file_a": a,
-                    "file_b": b,
-                    "co_change_count": count,
-                    "total_commits_a": file_commit_counts[a],
-                    "total_commits_b": file_commit_counts[b],
-                }
-            )
-    results.sort(key=lambda x: x["co_change_count"], reverse=True)
-    return results[:max_pairs]
-
-
-def parse_args(argv):
-    args = {
+def parse_args(argv: list[str]) -> dict:
+    """Parse the history-analysis CLI arguments."""
+    args: dict = {
         "path": ".",
-        "days": 90,
+        "days": 365,
         "since": None,
         "until": None,
         "last": None,
@@ -541,37 +424,30 @@ def parse_args(argv):
         "no_function": False,
     }
 
-    def _parse_int(flag: str, value: str) -> int:
+    def _int(flag: str, value: str) -> int:
         try:
             return int(value)
         except ValueError:
             raise SystemExit(
-                json.dumps({"error": f"{flag} requires an integer, got '{value}'"})
+                json.dumps({"error": f"{flag} requires an integer, got {value!r}"})
             )
 
+    int_flags = {
+        "--days": "days",
+        "--last": "last",
+        "--max-commits": "max_commits",
+        "--max-files": "max_files",
+        "--workers": "workers",
+    }
+    str_flags = {"--since": "since", "--until": "until"}
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--days" and i + 1 < len(argv):
-            args["days"] = _parse_int("--days", argv[i + 1])
+        if arg in int_flags and i + 1 < len(argv):
+            args[int_flags[arg]] = _int(arg, argv[i + 1])
             i += 2
-        elif arg == "--since" and i + 1 < len(argv):
-            args["since"] = argv[i + 1]
-            i += 2
-        elif arg == "--until" and i + 1 < len(argv):
-            args["until"] = argv[i + 1]
-            i += 2
-        elif arg == "--last" and i + 1 < len(argv):
-            args["last"] = _parse_int("--last", argv[i + 1])
-            i += 2
-        elif arg == "--max-commits" and i + 1 < len(argv):
-            args["max_commits"] = _parse_int("--max-commits", argv[i + 1])
-            i += 2
-        elif arg == "--max-files" and i + 1 < len(argv):
-            args["max_files"] = _parse_int("--max-files", argv[i + 1])
-            i += 2
-        elif arg == "--workers" and i + 1 < len(argv):
-            args["workers"] = _parse_int("--workers", argv[i + 1])
+        elif arg in str_flags and i + 1 < len(argv):
+            args[str_flags[arg]] = argv[i + 1]
             i += 2
         elif arg == "--no-function":
             args["no_function"] = True
@@ -584,18 +460,14 @@ def parse_args(argv):
     return args
 
 
-def analyze(argv=None):
-    """Analyze git history for churn metrics and commit classification."""
+def analyze(argv: list[str] | None = None) -> dict:
+    """Analyze git history for churn and Rust/PyO3 bug-pattern commits."""
     global _SCRIPT_START
     _SCRIPT_START = time.monotonic()
-
-    if argv is None:
-        argv = sys.argv[1:]
-    args = parse_args(argv)
+    args = parse_args(sys.argv[1:] if argv is None else argv)
 
     scan_root = Path(args["path"]).resolve()
     project_root = find_project_root(scan_root)
-
     if not _is_git_repo(project_root):
         return {"error": "Not a git repository", "project_root": str(project_root)}
 
@@ -603,12 +475,9 @@ def analyze(argv=None):
     since = args["since"] or (now - timedelta(days=args["days"])).isoformat()
     until = args["until"] or now.isoformat()
 
-    last_n = args["last"]
-    max_commits = args["max_commits"]
-
     git_args = ["log", "--numstat", "--format=COMMIT:%H|%aI|%an|%s"]
-    if last_n is not None:
-        git_args.append(f"-{last_n}")
+    if args["last"] is not None:
+        git_args.append(f"-{args['last']}")
     else:
         git_args.extend([f"--since={since}", f"--until={until}"])
     git_args.append("--")
@@ -618,11 +487,10 @@ def analyze(argv=None):
 
     proc = _run_git_streaming(git_args, project_root)
     try:
-        commits, file_churn = parse_git_log(proc.stdout, max_commits, project_root)
+        commits, file_churn = parse_git_log(
+            proc.stdout, args["max_commits"], project_root
+        )
     finally:
-        # Terminate git if it's still writing (parse_git_log may have stopped
-        # reading early due to max_commits, which would block git on a full
-        # pipe buffer -> deadlock).
         proc.terminate()
         try:
             proc.wait(timeout=5)
@@ -630,61 +498,30 @@ def analyze(argv=None):
             proc.kill()
             proc.wait()
 
-    commit_cap_applied = len(commits) >= max_commits
-    if last_n is not None and commits:
-        since = commits[-1]["date"]
-        until = commits[0]["date"]
-        try:
-            days = max(
-                1, (datetime.fromisoformat(until) - datetime.fromisoformat(since)).days
-            )
-        except ValueError:
-            days = args["days"]
-    else:
-        days = args["days"]
-
-    commits_by_type = defaultdict(int)
-    authors = set()
+    commits_by_type: dict[str, int] = defaultdict(int)
+    authors: set[str] = set()
     for c in commits:
         commits_by_type[c["type"]] += 1
         authors.add(c["author"])
 
     workers = args["workers"]
-
-    function_churn = []
+    function_churn: list[dict] = []
     function_churn_note = None
     if args["no_function"] or _check_script_timeout():
         function_churn_note = "Function-level churn skipped"
     else:
         function_churn = compute_function_churn(
-            commits, scan_root, project_root,
-            max_files=args["max_files"], workers=workers,
+            commits,
+            scan_root,
+            project_root,
+            max_files=args["max_files"],
+            workers=workers,
         )
 
-    recent_fixes = get_commit_details(
-        commits, "fix", project_root, scan_root, _MAX_DIFF_LINES_FIX,
-        workers=workers,
-    )
-    recent_features = get_commit_details(
-        commits, "feature", project_root, scan_root, _MAX_DIFF_LINES_FIX,
-        workers=workers,
-    )
-    recent_refactors = get_commit_details(
-        commits, "refactor", project_root, scan_root, _MAX_DIFF_LINES_REFACTOR,
-        workers=workers,
-    )
-
-    co_change_clusters = compute_co_change_clusters(commits)
-
-    result = {
+    result: dict = {
         "project_root": str(project_root),
         "scan_root": str(scan_root),
-        "time_range": {
-            "start": since,
-            "end": until,
-            "days": days,
-            "commit_cap_applied": commit_cap_applied,
-        },
+        "time_range": {"start": since, "end": until, "days": args["days"]},
         "summary": {
             "total_commits": len(commits),
             "commits_by_type": dict(commits_by_type),
@@ -694,28 +531,30 @@ def analyze(argv=None):
         },
         "file_churn": file_churn,
         "function_churn": function_churn,
-        "recent_fixes": recent_fixes,
-        "recent_features": recent_features,
-        "recent_refactors": recent_refactors,
-        "co_change_clusters": co_change_clusters,
+        "recent_fixes": get_commit_details(
+            commits, _BUG_TYPES, project_root, scan_root, workers=workers
+        ),
+        "recent_migrations": get_commit_details(
+            commits,
+            frozenset({"migration"}),
+            project_root,
+            scan_root,
+            workers=workers,
+        ),
     }
-
     if function_churn_note:
         result["function_churn_note"] = function_churn_note
-
     return result
 
 
 def main() -> None:
     try:
         result = analyze()
-        if "error" in result:
-            json.dump(result, sys.stdout, indent=2)
-            sys.stdout.write("\n")
-            sys.exit(1)
         json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
-    except Exception as e:
+        if "error" in result:
+            sys.exit(1)
+    except Exception as e:  # noqa: BLE001 -- top-level guard, emit JSON error
         json.dump({"error": str(e), "type": type(e).__name__}, sys.stdout, indent=2)
         sys.stdout.write("\n")
         sys.exit(1)
