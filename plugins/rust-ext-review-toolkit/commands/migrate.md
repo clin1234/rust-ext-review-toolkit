@@ -1,112 +1,71 @@
 ---
-description: "Extension modernization assessment covering multi-phase init migration, stable ABI adoption, version compatibility, and free-threading readiness. Use when the user asks to modernize an extension, prepare for subinterpreters, migrate to stable ABI, clean up deprecated APIs, or assess migration effort for a Rust extension."
+description: "Produce a PyO3 migration checklist for a Python extension written in Rust. Use when the user wants to upgrade their PyO3 version, adopt the Bound API, prepare for free-threading, or change the abi3 floor. The highest-value command given PyO3's frequent API churn."
 argument-hint: "[scope]"
 allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ---
 
-# Extension Migration Assessment
+# PyO3 Migration Checklist
 
-Run the modernization-focused agents to assess what needs to change to bring the extension up to current best practices: **module-state-checker**, **type-slot-checker**, **stable-abi-checker**, and **version-compat-scanner**. Answers the question: "What do I need to change to modernize this extension?"
+Produce an actionable, phased migration checklist for a Rust/PyO3 extension. **This is the highest-value command for Rust extensions** — PyO3 has reshuffled its API repeatedly (0.21 `Bound`, 0.23 `IntoPyObject`, 0.25 `attach`/`detach` rename, 0.27 conversion rework, 0.28 free-threading default) and the free-threading rollout is ongoing.
 
-**Scope:** "$ARGUMENTS" (default: entire project)
+**Arguments:** "$ARGUMENTS"  (scope only — path or glob; default `.`)
 
-**Plugin root:** `<plugin_root>` refers to the directory containing this command file's parent -- i.e., the `plugins/rust-ext-review-toolkit/` directory. Resolve it relative to this file's location.
+**Plugin root:** `<plugin_root>` is the `plugins/rust-ext-review-toolkit/` directory.
 
 ## Workflow
 
-1. Run `python <plugin_root>/scripts/discover_extension.py [scope]` to detect the extension layout
-2. If no Rust extension found, inform the user and stop
-3. Check the `code_generation` field. If `"cython"` or `"mypyc"`, note that migration recommendations apply to the code generator, not the generated output. Skip stable-abi-checker and version-compat-scanner (answers are always "generator limitation").
-4. Run applicable modernization agents with at most 2 in parallel, feeding discovery context:
-   - **module-state-checker** -- init style, global state, module lifecycle
-   - **type-slot-checker** -- type definition correctness and modernity
-   - **stable-abi-checker** -- ABI compliance assessment
-   - **version-compat-scanner** -- version compatibility and dead code
-4. Synthesize into a migration report with concrete checklist:
+1. **Discovery** — `python <plugin_root>/scripts/discover_rust_ext.py [scope]`. Capture the PyO3 version, features, build backend, Python floor, and free-threading signals. Stop if not a PyO3 extension.
+2. **Preflight** — dispatch rust-codegen-mapper.
+3. **Dispatch** the four migration agents:
+   - **lifetime-handle-checker** — legacy `&PyAny` GIL-refs, `Py::as_ref`, non-idiomatic handles
+   - **pyo3-version-compat-scanner** — removed / deprecated / renamed APIs at the crate's version
+   - **pyclass-traits-checker** — `Send + Sync` bound gaps, missing `frozen` for free-threading
+   - **module-init-checker** — `#[pymodule]` shape, process-global state
+4. **Assemble the checklist** from their findings, grouped into migration phases.
+
+## Output — Migration Report
 
 ```markdown
-# Extension Migration Report
-
-## Extension: [name]
+# Rust Extension Migration Report — [crate]
 
 ## Current State
-- Init style: [single-phase (legacy) / multi-phase]
-- Global state: [N] static PyObject* variables, [N] other static mutable variables
-- Type definitions: [N] types ([N] static, [N] heap)
-- Stable ABI: [not used / claimed / fully compliant]
-- Minimum Python: [version from python_requires or inferred]
-- Dead compatibility code: [N] version guard blocks below minimum
+- PyO3 version: [version]   (or "unresolved — path/workspace dependency")
+- Active features: [list]
+- Build backend: [maturin / setuptools-rust / cargo]
+- Python floor: [3.N or none]
+- Free-threading target: [yes/no — and the signals]
 
 ## Migration Checklist
 
-### Phase 1: Multi-phase Initialization
-[Skip if already using multi-phase init]
+### Phase 1: Bound API migration (PyO3 0.21+)
+- [ ] Replace N `&PyAny`/`&PyDict`/... GIL references with `&Bound<'py, T>`  (lifetime-handle-checker `legacy_ref_type`)
+- [ ] Replace N `Py::as_ref(py)` calls with `.bind(py)`  (`legacy_as_ref`)
+- [ ] Convert N `Py<T>` parameters that are only `.bind()`-ed to `&Bound<'py, T>`  (`py_param_should_be_bound`)
 
-**Difficulty: [Easy / Moderate / Hard]** (based on amount of global state)
+### Phase 2: Renamed / deprecated APIs
+- [ ] N renamed APIs to migrate (`with_gil`→`attach`, `downcast`→`cast`, ...)  (version-compat `renamed_api`)
+- [ ] N deprecated APIs to replace  (`deprecated_api`)
 
-- [ ] Convert `PyInit_xxx` from `PyModule_Create` to `PyModuleDef_Init`
-- [ ] Add `Py_mod_exec` slot with module initialization logic
-- [ ] Create module state struct to hold [N] global PyObject* variables:
-  [list each variable and what it holds]
-- [ ] Set `m_size` to `sizeof(module_state_struct)`
-- [ ] Add `m_traverse` visiting all PyObject* in module state
-- [ ] Add `m_clear` clearing all PyObject* in module state
-- [ ] Add `m_free` if any non-Python cleanup is needed
-- [ ] Replace direct global access with `PyModule_GetState()` calls
-- [ ] Convert [N] static PyTypeObject(s) to heap types:
-  [list each type]
+### Phase 3: Removed APIs (blocking on the target version)
+- [ ] N removed APIs that will not compile  (version-compat `removed_api`)
+- [ ] Review the `Send + Sync` requirement: N `#[pyclass]` types with non-Send/Sync fields  (pyclass-traits `non_send_field`)
 
-### Phase 2: Type Slot Correctness
-[Only items that need fixing -- skip if all types are correct]
+### Phase 4: Free-threading readiness (optional, for 3.13t / 3.14t)
+- [ ] N `#[pyclass]` types with mutable shared state lack `frozen`  (pyclass-traits `missing_frozen_ft`)
+- [ ] Add `frozen` + interior locking / atomics to the candidates above
+- [ ] Declare the module's stance: `#[pymodule(gil_used = true)]` until the crate is free-threading-audited, or rely on the 0.28+ `gil_used = false` default once it is
+- [ ] Build and test against a free-threaded interpreter (`python3.13t` / `3.14t`)
+- [ ] For a full GIL-discipline audit, run `/explore <scope> gil`
 
-For each type with issues:
-- [ ] [type name]: [specific issue and fix]
-
-### Phase 3: Stable ABI Adoption
-[Skip if already compliant or if stable ABI is not desired]
-
-**Difficulty: [Easy / Moderate / Hard]** (based on private API usage)
-
-- [ ] Replace [N] internal struct accesses with accessor functions:
-  [list each: e.g., "op->ob_type -> Py_TYPE(op)"]
-- [ ] Replace [N] private API calls:
-  [list each: e.g., "_PyObject_GC_TRACK -> PyObject_GC_Track"]
-- [ ] Remove [N] forbidden header includes:
-  [list each]
-- [ ] Add `#define Py_LIMITED_API 0x03[XX]0000` before `#include <Python.h>`
-- [ ] Update build system to pass `-DPy_LIMITED_API=0x03[XX]0000`
-
-### Phase 4: Compatibility Cleanup
-[Skip if no dead code or deprecated APIs]
-
-- [ ] Remove [N] dead version guard blocks (targeting Python < [minimum]):
-  [list files and line ranges]
-- [ ] Replace [N] deprecated API calls:
-  [list each: e.g., "PyModule_AddObject -> PyModule_AddObjectRef"]
-- [ ] Consider adding `pythoncapi_compat.h` for forward-compatible macros
-
-### Phase 5: Free-Threading Readiness (Optional)
-[Only if targeting Python 3.13+]
-
-- [ ] Add `{Py_mod_gil, Py_MOD_GIL_NOT_USED}` to module slots (or `Py_MOD_GIL_USED` if GIL is needed)
-- [ ] Audit [N] static mutable variables for thread safety
-- [ ] Add synchronization for shared mutable state
-
-## Estimated Total Effort
-[Summary: "N items across M phases. Core migration (Phase 1) is [difficulty]
-and touches [N] files. Phases 2-5 are incremental and can be done separately."]
-
-## References
-- [PEP 489 -- Multi-phase extension module initialization](https://peps.python.org/pep-0489/)
-- [PEP 384 -- Defining a Stable ABI](https://peps.python.org/pep-0384/)
-- [PEP 703 -- Making the Global Interpreter Lock Optional](https://peps.python.org/pep-0703/)
-- [pythoncapi-compat](https://github.com/python/pythoncapi-compat)
-- [Porting Rust extensions to Python 3.13+](https://docs.python.org/3/howto/isolating-extensions.html)
+### Phase 5: abi3 floor (optional)
+- [ ] Current floor: [abi3-pyN or none]. Note: `abi3` is silently ignored under a free-threaded build.
+- [ ] If raising the floor unlocks newer C-API, list what (version-compat / agent notes)
 ```
 
-## Usage
+Only include a phase if it has items. Order the checklist so the **blocking** work (Phase 3 removed APIs — the crate will not compile) is clearly separated from the **optional** work (Phases 4–5). End with a one-paragraph recommendation: the smallest next PyO3 version the crate can move to cleanly, and the effort to get there.
 
-```
-/rust-ext-review-toolkit:migrate              # Full migration assessment
-/rust-ext-review-toolkit:migrate src/         # Specific directory
-```
+## Tips
+
+- Run this **before** bumping the `pyo3` version in `Cargo.toml` — it tells you what will break.
+- A crate on an unresolved PyO3 version (path/workspace dep) is assessed against the 0.28 baseline; say so.
+- Free-threading (Phase 4) is never blocking — it is readiness work, not a bug fix.

@@ -1,41 +1,49 @@
 # CLAUDE.md — rust-ext-review-toolkit development guide
 
 ## Project overview
-rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing CPython Rust extensions. It finds API misuse, memory safety bugs, compatibility issues, and correctness problems in code that *consumes* the `pyo3` API.
+rust-ext-review-toolkit is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for reviewing Python extensions written in Rust with **PyO3**. It finds soundness bugs in `unsafe` code, PyO3 API misuse, GIL/lifetime discipline issues, `#[pyclass]` trait-bound violations, panic-safety problems, and PyO3 version-migration debt.
 
 Part of a family of review toolkits:
-- [code-review-toolkit](https://github.com/clin1234/code-review-toolkit) — Python source code
-- [cpython-review-toolkit](https://github.com/clin1234/cpython-review-toolkit) — CPython runtime Rust code
-- **rust-ext-review-toolkit** — Rust extensions (this project)
+- [code-review-toolkit](https://github.com/devdanzin/code-review-toolkit) — Python source code
+- [cpython-review-toolkit](https://github.com/devdanzin/cpython-review-toolkit) — CPython runtime C code
+- [cext-review-toolkit](https://github.com/devdanzin/cext-review-toolkit) — C extensions
+- **rust-ext-review-toolkit** — Rust/PyO3 extensions (this project)
 
-Key architectural difference: uses Tree-sitter for C parsing (not regex), enabling analysis that regex cannot do (borrowed-ref lifetime tracking, type slot cross-referencing, accurate scope analysis).
+Key point: PyO3's type system already eliminates most C-extension bug classes (manual refcounting, NULL derefs, borrowed-ref-across-call). The toolkit's bug *catalog* is therefore PyO3-specific — the danger concentrates in `unsafe` blocks, panics crossing the FFI boundary, `#[pyclass]` `Send`/`Sync` bounds, and swallowed `PyResult`s. Like its siblings it uses Tree-sitter (here, `tree-sitter-rust`) rather than regex, because Rust extension styles and procedural-macro-heavy code defeat regex-based analysis.
+
+> **Status:** v0.1 — the 13 agents, 15 scripts, 4 commands, and data files are implemented, tested (`python -m unittest discover tests`), and validated against real PyO3 crates (see `docs/real-world-validation.md`).
+
+## Design document
+`rust-ext-review-toolkit-design.md` is the authoritative spec — agents, scripts, schemas, classification — reconciled to current PyO3 (0.28 stable, 0.29 in development). If current PyO3 docs and the design doc disagree, trust the PyO3 docs and flag the discrepancy.
+
+The v0.1 build was guided by three build-time companion docs (a PyO3 domain primer, an implementation roadmap, and a tree-sitter-rust recipe reference); they served their purpose and were removed once the build was complete — they remain in git history. The live coding references are now `scripts/rust_ts_utils.py` (grammar facts in its docstrings), the per-agent prompt files (per-hazard rationale), and the Gotchas section below.
 
 ## Prerequisites
 - Python 3.10+
 - `tree-sitter` and `tree-sitter-rust`: `pip install tree-sitter tree-sitter-rust`
-- `tree-sitter-rustpp` (optional): `pip install tree-sitter-rustpp` — enables Rust file parsing
-- `rust-analyzer` and `cargo clippy` (optional): system packages — enables external tool cross-referencing
+- Optional, used opportunistically when present: `cargo clippy`, `cargo miri`, `cargo expand`, `cargo metadata` (from a Rust toolchain) — enable external-tool cross-referencing
 - No other dependencies — all scripts use only the standard library plus tree-sitter
 
 ## Dev commands
 ```bash
-# Activate the project venv (Python 3.14 from ~/projects/3.14/python)
+# Activate the project venv
 source ~/venvs/rust-ext-review-toolkit/bin/activate
 
 # Run all tests
 python -m unittest discover tests -v
 
-# Run a specific test file
-python -m unittest tests.test_scan_refcounts -v
+# Run a specific test file (use discover -p; the tests/ dir is not a package,
+# so `python -m unittest tests.test_x` cannot resolve the fixtures/helpers import)
+python -m unittest discover tests -p test_scan_unsafe_blocks.py -v
 
 # Run a single script standalone (all output JSON to stdout)
-python plugins/rust-ext-review-toolkit/scripts/scan_refcounts.py /path/to/extension.c
-python plugins/rust-ext-review-toolkit/scripts/discover_extension.py /path/to/project
+python plugins/rust-ext-review-toolkit/scripts/scan_unsafe_blocks.py /path/to/crate
+python plugins/rust-ext-review-toolkit/scripts/discover_rust_ext.py /path/to/crate
 
-# Lint and format (install ruff/mypy into venv if not present)
+# Lint and format (install ruff/mypy into the venv if not present)
 ruff format <changed-files>
 ruff check <changed-files>
-mypy
+mypy plugins/rust-ext-review-toolkit/scripts/
 ```
 
 ## Code style
@@ -56,14 +64,17 @@ rust-ext-review-toolkit/
 ├── README.md                          # User-facing documentation
 ├── CHANGELOG.md                       # Keep a Changelog format
 ├── LICENSE                            # MIT
-├── rust-ext-review-toolkit-design.md      # Full design document (authoritative reference)
-├── .claude/skills/task-workflow/      # Claude Code skill for dev workflow
-├── plugins/rust-ext-review-toolkit/       # The actual plugin
-│   ├── .claude-plugin/plugin.json     # Plugin metadata
-│   ├── agents/                        # 10 agent prompt definitions (markdown)
+├── rust-ext-review-toolkit-design.md  # Design spec
+├── WORKING_WITH_MAINTAINERS.md        # Maintainer-engagement contract
+├── docs/real-world-validation.md      # Phase 7 validation report
+├── .claude-plugin/                    # marketplace.json + plugin.json
+├── .claude/skills/task-workflow/      # Claude Code skill for the dev workflow
+├── plugins/rust-ext-review-toolkit/   # The actual plugin
+│   ├── .claude-plugin/plugin.json
+│   ├── agents/                        # 13 agent prompt definitions (markdown)
 │   ├── commands/                      # 4 command definitions (markdown)
-│   ├── scripts/                       # 11 Python scripts (the core code)
-│   └── data/                          # 4 JSON data files (API tables, etc.)
+│   ├── scripts/                       # 15 Python scripts (the core code)
+│   └── data/                          # 6 JSON data files
 └── tests/                             # unittest test suite
 ```
 
@@ -71,109 +82,86 @@ rust-ext-review-toolkit/
 
 ### Scripts (the core analysis code)
 
-All scripts live in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis script follows the same pattern: parse Rust files with Tree-sitter, find candidate issues, output JSON to stdout.
+15 scripts in `plugins/rust-ext-review-toolkit/scripts/`. Every analysis script parses `.rs` files with Tree-sitter-rust, finds candidate issues, and outputs JSON to stdout.
 
-| Script | Lines | Purpose |
-|--------|-------|---------|
-| `tree_sitter_utils.py` | ~550 | Core parsing module — all other scripts import from here |
-| `scan_common.py` | ~130 | Shared utilities: project root, file discovery, API tables, arg parsing |
-| `scan_refcounts.py` | ~360 | Reference counting errors (leaked refs, borrowed-ref-across-call, stolen-ref misuse) |
-| `scan_error_paths.py` | ~330 | Error handling bugs (missing NULL checks, exception clobbering, return-without-exception) |
-| `scan_null_checks.py` | ~250 | NULL safety (unchecked allocations, deref-before-check) |
-| `scan_gil_usage.py` | ~300 | GIL discipline (mismatched macros, API without GIL, blocking with GIL, free-threading) |
-| `scan_module_state.py` | ~320 | Module init and state (single-phase init, global state, missing traverse) |
-| `scan_type_slots.py` | ~430 | Type definitions (dealloc, traverse, richcompare, flags, heap types) |
-| `measure_c_complexity.py` | ~250 | Function complexity scoring |
-| `analyze_history.py` | ~520 | Git history analysis (similar bugs, churn prioritization) |
-| `discover_extension.py` | ~420 | Extension project layout detection |
-| `run_external_tools.py` | ~250 | External tool integration (rust-analyzer, cargo clippy) |
+| Script | Purpose |
+|--------|---------|
+| `rust_ts_utils.py` | Core tree-sitter-rust parsing module — all scanners import from here |
+| `scan_common.py` | Shared utilities: project root, file discovery, data tables, args, dedup |
+| `discover_rust_ext.py` | Crate/module detection, PyO3 version + feature resolution |
+| `scan_unsafe_blocks.py` | `unsafe` block soundness audit |
+| `scan_pyresult.py` | `PyResult` propagation, swallowed errors, exception clobbering |
+| `scan_gil_discipline.py` | GIL handling — `detach`/`attach`, foreign callbacks, free-threading |
+| `scan_panic_safety.py` | Panic-prone calls reachable across the FFI boundary |
+| `scan_pyclass_traits.py` | `#[pyclass]` `Send`/`Sync`/`frozen`/`unsendable` |
+| `scan_pyclass_protocol.py` | `#[pymethods]` slots, `__traverse__`/`__clear__`, `__richcmp__` |
+| `scan_module_init.py` | `#[pymodule]` shape, module-level state |
+| `scan_lifetime_handles.py` | `Bound` vs `Py` vs `Borrowed`, legacy `&PyAny` |
+| `scan_pyo3_version_compat.py` | Deprecated/removed APIs by PyO3 version, abi3 consistency |
+| `measure_rust_complexity.py` | Function complexity scoring |
+| `analyze_history.py` | Git history — similar-bug detection, churn prioritization |
+| `run_external_tools.py` | clippy / miri / cargo-expand / cargo-metadata integration |
 
-**Dependency graph:** `tree_sitter_utils.py` is at the center. `scan_common.py` imports from it. All other scripts import from both. `run_external_tools.py` imports only from `scan_common`. No circular dependencies.
+**Dependency graph:** `rust_ts_utils.py` is the leaf. `scan_common.py` imports from it. All scanners import from both. `discover_rust_ext.py` and `run_external_tools.py` import only from `scan_common`. No cycles.
 
-**Script calling convention:** Every analysis script exposes `analyze(target: str, *, max_files: int = 0) -> dict` and a `main()` that outputs JSON to stdout. Exception: `analyze_history.py` takes `argv` to match code-review-toolkit conventions.
+**Script calling convention:** every analysis script exposes `analyze(target: str, *, max_files: int = 0) -> dict` and a `main()` that outputs JSON to stdout via shared `parse_common_args()`. Exception: `analyze_history.py` takes `argv` (matches the code-review-toolkit convention).
 
-**Data files** in `plugins/rust-ext-review-toolkit/data/`:
-- `api_tables.json` — NEW_REF_APIS, BORROWED_REF_APIS, STEAL_REF_APIS
-- `deprecated_apis.json` — deprecated APIs with version and replacement
-- `stable_abi.json` — functions in the stable ABI
-- `limited_api_headers.json` — headers permitted under Py_LIMITED_API
+**Data files** in `data/` — six JSON files: `pyo3_api_tables.json`, `non_send_sync_types.json`, `panic_unwind_apis.json`, `pyo3_idioms.json`, plus the vendored `stable_abi.json` and `limited_api_headers.json` (from cext-review-toolkit, for raw `pyo3-ffi` audits under the `abi3` feature). The design (§2.2, §8) also specs `pyo3_version_matrix.json` and `abi3_compatible_apis.json`; both were deferred to v0.2 — no v0.1 scanner consumes them.
 
 ### Agents (prompt definitions for Claude Code)
 
-10 markdown files in `plugins/rust-ext-review-toolkit/agents/`. Each has YAML frontmatter (name, description, model, color) and a structured prompt telling Claude Code how to use the corresponding script and interpret its output.
+13 markdown files in `agents/`. Each has YAML frontmatter and a structured prompt telling Claude Code how to run the corresponding script and triage its output. Scripts find *candidates* (deliberately high recall, ~20–40% false positives); agents confirm or dismiss each by reading real code context.
 
-Agents don't contain analysis logic — they instruct Claude Code to run a script, read the JSON output, then perform deep qualitative review of each candidate finding. The scripts find candidates (with ~20-40% false positive rate); the agents confirm or dismiss them.
+| Group | Agents |
+|-------|--------|
+| Preflight | rust-codegen-mapper (orientation guide; runs first) |
+| Safety-critical | unsafe-block-auditor, pyresult-propagation-checker, gil-discipline-checker, panic-safety-checker |
+| PyO3-specific | pyclass-traits-checker, pyclass-protocol-checker, module-init-checker, lifetime-handle-checker |
+| Compatibility | pyo3-version-compat-scanner |
+| Quality & history | rust-complexity-analyzer, git-history-analyzer |
+| Parity | parity-checker (qualitative, no script) |
 
-| Agent | Script | Focus |
-|-------|--------|-------|
-| refcount-auditor | scan_refcounts.py | Borrowed-ref-across-call is the crown jewel finding |
-| error-path-analyzer | scan_error_paths.py | Exception clobbering, return-without-exception |
-| null-safety-scanner | scan_null_checks.py | Unchecked allocations, deref-before-check |
-| gil-discipline-checker | scan_gil_usage.py | Callback-without-GIL, free-threading readiness |
-| module-state-checker | scan_module_state.py | Single-phase init, global state migration |
-| type-slot-checker | scan_type_slots.py | Dealloc, traverse, richcompare correctness |
-| stable-abi-checker | (qualitative) | Grep-based, uses data/stable_abi.json |
-| version-compat-scanner | (qualitative) | Grep-based, uses data/deprecated_apis.json |
-| git-history-analyzer | analyze_history.py | Similar bug detection, churn prioritization |
-| c-complexity-analyzer | measure_c_complexity.py | Function complexity scoring |
+The crown-jewel finding is the `unsafe`-block soundness violation (and `Bound`/`Py` held across `detach`) — the Rust analogue of cext's borrowed-ref-across-callback.
 
 ### Commands (orchestration)
 
-4 markdown files in `plugins/rust-ext-review-toolkit/commands/`:
+4 markdown files in `commands/`:
 - `explore.md` — primary command, runs agents in phased groups
 - `health.md` — quick scored dashboard, all agents in summary mode
-- `hotspots.md` — refcount + errors + complexity, find worst functions
-- `migrate.md` — modernization checklist (multi-phase init, stable ABI, compat)
+- `hotspots.md` — unsafe + pyresult + panic + complexity; find the worst functions
+- `migrate.md` — Bound-API / free-threading / abi3 migration checklist (the highest-value command, given PyO3's version cadence)
 
 ### Classification system
 
-Every finding is tagged:
-- **FIX** — bug causing crashes, leaks, or wrong behavior
-- **CONSIDER** — likely improvement, may have migration cost
-- **POLICY** — design decision for the maintainer
-- **ACCEPTABLE** — noted but no action needed
-
-Important calibration: module state issues (single-phase init, global state) are CONSIDER, not FIX — they work correctly, they just limit subinterpreter support.
+Every finding is tagged FIX / CONSIDER / POLICY / ACCEPTABLE — see design §6. Calibration notes: every `unsafe` block defaults to CONSIDER (a soundness obligation) until escalated to FIX or downgraded to ACCEPTABLE; free-threading and subinterpreter gaps are CONSIDER or POLICY, never FIX, unless they cause a bug in the current execution model.
 
 ## Testing notes
 - All tests use `unittest` — never pytest
-- Test helper in `tests/helpers.py`: `TempExtension` context manager, `import_script()` loader
-- 4 Rust code fixtures: MINIMAL_EXTENSION, MULTI_PHASE_EXTENSION, EXTENSION_WITH_TYPE, EXTENSION_WITH_BUGS
-- 1 setup.py template: SETUP_PY_TEMPLATE
-- Tests create temporary directories with C files, run scripts on them, and check JSON output
-- `import_script(name)` loads scripts from `plugins/rust-ext-review-toolkit/scripts/` via importlib
+- Test helper in `tests/helpers.py`: `TempRustExtension` context manager, `import_script()` loader
+- Fixture crate strings (in `tests/fixtures.py`): `MINIMAL_PYO3_CRATE`, `PYO3_CRATE_WITH_PYCLASS`, `PYO3_CRATE_WITH_UNSAFE`, `PYO3_CRATE_WITH_BUGS`, `PYO3_FT_TARGET_CRATE`
+- Tests create temp crates (`Cargo.toml` + `.rs` files), run scripts, and check JSON output
+- Version-aware scanners need tests across PyO3 0.21 / 0.25 / 0.28
 
 ## Adding a new analysis script
-
 1. Create `plugins/rust-ext-review-toolkit/scripts/scan_newcheck.py`
-2. Import from `tree_sitter_utils` and `scan_common`
-3. Implement `analyze(target: str, *, max_files: int = 0) -> dict` following the common JSON envelope
-4. Add `main()` using `parse_common_args()` from `scan_common`
-5. Create `tests/test_scan_newcheck.py` with at least: true positive, true negative, edge case
-6. Create `plugins/rust-ext-review-toolkit/agents/newcheck-agent.md` with YAML frontmatter and prompt
-7. Add the agent to the appropriate phase group in `commands/explore.md`
+2. Import from `rust_ts_utils` and `scan_common`
+3. Implement `analyze(target, *, max_files=0) -> dict` following the common JSON envelope (design §4.2)
+4. Add `main()` using `parse_common_args()`
+5. Create `tests/test_scan_newcheck.py`: true positive, true negative, ≥1 edge case
+6. Create the matching `agents/<agent>.md` with YAML frontmatter and prompt
+7. Add the agent to the right phase group in `commands/explore.md`
 8. Update CHANGELOG.md
 
-## Adding a new agent (qualitative, no script)
-
-1. Create `plugins/rust-ext-review-toolkit/agents/new-agent.md` with YAML frontmatter
-2. The agent prompt should instruct Claude Code to use Grep/Read tools directly
-3. Reference data files in `data/` for API lists and version information
-4. Add to the appropriate phase group in `commands/explore.md`
-5. Update CHANGELOG.md
-
 ## Gotchas
-
-- **Strip comments before pattern matching:** When checking function bodies for patterns like `tp_free` or `Py_VISIT`, always use `strip_comments()` first. Comments containing these strings (e.g., `/* BUG: should use tp_free */`) cause false negatives. This bit us in Round 1 testing.
-- **`sys.path.insert` for imports:** Scripts use `sys.path.insert(0, str(Path(__file__).resolve().parent))` to import `tree_sitter_utils` and `scan_common`. This is intentional — the scripts directory is not a Python package (no `__init__.py`). Tests use `import_script()` which does the same via importlib.
-- **`parse_bytes_for_file` vs `parse_bytes`:** In scanner loops, always use `parse_bytes_for_file(source_bytes, filepath)` which auto-selects C or Rust parser by extension. `parse_bytes` always uses the C parser. Never use `parse_file(filepath)` — it reads the file again internally, doubling I/O and creating a TOCTOU race.
-- **Rust parsing is optional:** All scripts must work without tree-sitter-rustpp. Use `is_cpp_available()` to gate Rust features. Never import `tree_sitter_cpp` directly outside `tree_sitter_utils.py`.
-- **External tools have timeouts:** `run_external_tools.py` uses 120s per-file timeouts for subprocess calls. Large files with complex analysis may time out.
-- **`analyze_history.py` has a different `analyze()` signature:** Takes `argv` list instead of `(target, max_files)` — matches code-review-toolkit's convention but differs from all other scripts.
-
-## Design document
-
-`rust-ext-review-toolkit-design.md` at the repo root is the authoritative design reference. It covers: project identity, architecture decisions (why Tree-sitter, why separate from cpython-review-toolkit), all agent specifications, script output schemas, command definitions, classification system, and implementation plan.
+- **Scanners must recognize both PyO3 vocabularies.** PyO3 0.25 renamed `with_gil`→`attach`, `allow_threads`→`detach`, `with_gil_unchecked`→`attach_unchecked`; 0.27 renamed `downcast`→`cast`. The toolkit audits crates across PyO3 0.20–0.29, so scanners match *both* the legacy and current names. Rename pairs live in `data/pyo3_api_tables.json`.
+- **There is no `gil-disabled` Cargo feature.** Free-threading is detected from the interpreter (the `Py_GIL_DISABLED` cfg), not feature-gated. Don't scan for a feature flag that doesn't exist. The module-level `gil_used` *default* also flipped in 0.28 (thread-safe by default) — classify version-aware.
+- **Strip comments before pattern matching.** A comment containing `unsafe` or `unwrap` causes false negatives — always `strip_comments()` first.
+- **Tree-sitter does not expand procedural macros.** `#[pyclass]`/`#[pymethods]` generate code the scanner never sees; analyses are *syntactic inference* over the attribute + struct + method shape. Document this limit in scanner output.
+- **`sys.path.insert` for imports.** Scripts do `sys.path.insert(0, str(Path(__file__).resolve().parent))` to import siblings — the scripts directory is not a Python package. Tests use `import_script()`, which does the same.
+- **Parse the source bytes once.** Read a file's bytes once and parse those; never have a helper re-read the file (double I/O + TOCTOU). Slice on `node.start_byte`/`end_byte` and decode the slice last (byte offsets, not char offsets).
+- **Never compare tree-sitter nodes with `is`.** py-tree-sitter hands back a *fresh* `Node` wrapper on every access, so `node_a is node_b` is `False` even for the same underlying node (and `child_by_field_name(...) is some_walked_node` always fails). Compare identity with `node_a.id == node_b.id`; key sets/dicts on `node.id`.
+- **`analyze_history.py` has a different signature.** It takes `argv`, not `(target, max_files)` — matches code-review-toolkit.
+- **`#[pyclass]` requires `Send + Sync` since PyO3 0.23** (before 0.23, only `Send`). `data/non_send_sync_types.json` classifies each type by which bound it breaks.
 
 ## Workflow
-- Use `/task-workflow <description>` for the full issue → branch → code → test → commit → PR → merge cycle
+- Use `/task-workflow <description>` for the full issue → branch → code → test → commit → PR → merge cycle.
