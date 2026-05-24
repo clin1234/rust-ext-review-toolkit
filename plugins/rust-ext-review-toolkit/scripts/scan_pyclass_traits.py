@@ -24,6 +24,7 @@ Usage:
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -72,15 +73,67 @@ def _has_mut_self_method(impl: dict, stripped: bytes) -> bool:
     return False
 
 
+def _free_fn_mutates_pyclass(
+    fn: dict, stripped: bytes, pyclass_names: set[str]
+) -> str | None:
+    """If a free `#[pyfunction]` takes `&mut <PyclassName>` as a parameter,
+    return the pyclass name; else ``None``.
+
+    A pyclass mutated via a free `#[pyfunction]` (rather than `&mut self` in
+    `#[pymethods]`) is just as exposed to free-threading races as a method
+    mutator -- the v0.1 detector missed this shape (cryptography's
+    `LoadedProviders` is the canonical example).
+    """
+    params = fn["params_node"]
+    if params is None:
+        return None
+    for child in params.children:  # type: ignore[attr-defined]
+        if child.type != "parameter":
+            continue
+        ty = child.child_by_field_name("type")
+        if ty is None:
+            continue
+        type_text = text_of(ty, stripped).replace(" ", "")
+        if not type_text.startswith("&mut"):
+            continue
+        # `&mut PyClassName` -- strip the `&mut`, any lifetime, any generics.
+        remainder = type_text[len("&mut") :].lstrip("'")
+        # Drop a lifetime token like 'a if present (after lstrip removes the
+        # apostrophe leaving e.g. `aPyClass`, fall through to identifier
+        # extraction below -- we keep things simple and read the bare type
+        # name from the original text).
+        bare = text_of(ty, stripped).strip()
+        # Strip `&mut`, optional `'lifetime`, then take leading identifier.
+        bare = re.sub(r"^&\s*mut\s+(?:'\w+\s+)?", "", bare)
+        m = re.match(r"([A-Za-z_]\w*)", bare)
+        if m and m.group(1) in pyclass_names:
+            return m.group(1)
+        # Fall back: spaceless lookup for `&mut'aType` shape.
+        if remainder in pyclass_names:
+            return remainder
+    return None
+
+
 def _collect(parsed: list) -> dict:
-    """First pass: gather struct fields, impls, and pymethods blocks crate-wide."""
+    """First pass: gather struct fields, impls, pymethods, and #[pyfunction]
+    free-fn mutators of `#[pyclass]` types -- crate-wide."""
     struct_fields: dict[str, list[dict]] = {}
     unsafe_send_sync: set[str] = set()
     drop_types: set[str] = set()
     pymethods: dict[str, tuple[dict, bytes]] = {}
+    pyclass_names: set[str] = set()
+    free_fn_mutators: set[str] = set()
+    pyfunctions: list[tuple[dict, bytes]] = []
     for _rel, tree, _source, stripped in parsed:
         for struct in extract_struct_defs(tree, stripped):
             struct_fields.setdefault(struct["name"], struct["fields"])
+        # `#[pyclass]` may decorate a struct or an enum; treat both as
+        # pyclass names for the free-fn-mutator lookup below.
+        for hit in extract_attribute_targets(tree, stripped, "pyclass"):
+            tgt = hit["target"]
+            name_node = tgt.child_by_field_name("name")
+            if name_node is not None:
+                pyclass_names.add(text_of(name_node, stripped))
         for impl in extract_impl_blocks(tree, stripped):
             tname = _type_name(impl["type"])
             trait = (impl["trait"] or "").rsplit("::", 1)[-1].strip()
@@ -93,11 +146,27 @@ def _collect(parsed: list) -> dict:
                 for a in extract_attributes(impl["node"], stripped)
             ):
                 pymethods.setdefault(tname, (impl, stripped))
+        # Collect `#[pyfunction]` free functions for a second pass once the
+        # pyclass set is known.
+        for hit in extract_attribute_targets(tree, stripped, "pyfunction"):
+            tgt = hit["target"]
+            if tgt.type != "function_item":
+                continue
+            # Recover the fn-item dict shape that `extract_fn_items` returns
+            # so `_free_fn_mutates_pyclass` can read `params_node` directly.
+            params_node = tgt.child_by_field_name("parameters")
+            pyfunctions.append(({"params_node": params_node}, stripped))
+    for fn, stripped in pyfunctions:
+        mutated = _free_fn_mutates_pyclass(fn, stripped, pyclass_names)
+        if mutated:
+            free_fn_mutators.add(mutated)
     return {
         "struct_fields": struct_fields,
         "unsafe_send_sync": unsafe_send_sync,
         "drop_types": drop_types,
         "pymethods": pymethods,
+        "pyclass_names": pyclass_names,
+        "free_fn_mutators": free_fn_mutators,
     }
 
 
@@ -190,17 +259,24 @@ def _scan_pyclass(
     # Pattern 3: missing `frozen` on a free-threading-targeted crate.
     if ctx["ft_target"] and not options.get("frozen"):
         pym = ctx["pymethods"].get(struct_name)
-        if pym is not None and _has_mut_self_method(*pym):
+        mut_method = pym is not None and _has_mut_self_method(*pym)
+        free_fn_mut = struct_name in ctx["free_fn_mutators"]
+        if mut_method or free_fn_mut:
+            mutation_via = (
+                "`&mut self` method(s)"
+                if mut_method
+                else f"`&mut {struct_name}` parameter in a `#[pyfunction]`"
+            )
             findings.append(
                 make_finding(
                     "missing_frozen_ft",
                     classification="ACCEPTABLE" if suppressed else "CONSIDER",
                     confidence="MEDIUM",
                     description=(
-                        f"`#[pyclass] {struct_name}` exposes `&mut self` "
-                        f"method(s) and is not `frozen`. On a free-threading "
-                        f"crate, concurrent calls mutate shared state without "
-                        f"synchronisation."
+                        f"`#[pyclass] {struct_name}` is mutated via "
+                        f"{mutation_via} and is not `frozen`. On a "
+                        f"free-threading crate, concurrent calls mutate "
+                        f"shared state without synchronisation."
                     ),
                     file=rel,
                     line=line,
@@ -210,7 +286,11 @@ def _scan_pyclass(
                         "Make the class `#[pyclass(frozen)]` and move mutable "
                         "state behind a `Mutex`/`RwLock` or atomics."
                     ),
-                    details={"struct": struct_name},
+                    details={
+                        "struct": struct_name,
+                        "mutated_via_method": mut_method,
+                        "mutated_via_free_fn": free_fn_mut,
+                    },
                 )
             )
 
