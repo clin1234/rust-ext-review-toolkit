@@ -177,6 +177,11 @@ def _scan_file(
 
     # `Borrowed<'a, 'py, T>` in a signature position -- rarely the right handle.
     # (A `Borrowed` used only inside a function body is the maintainer's call.)
+    #
+    # v0.2: PyO3 0.28's `FromPyObject::extract` mandates `Borrowed<'a, 'py,
+    # PyAny>` as the parameter type. Suppress findings inside such an impl
+    # block -- the trait signature is fixed, the developer has no choice.
+    # Polars hit 61/61 FPs from this single shape.
     for node in walk(tree, "generic_type"):
         base = node.child_by_field_name("type")
         if base is None:
@@ -186,6 +191,8 @@ def _scan_file(
         scope = find_enclosing(node, {"parameters", "block", "function_item"})
         if scope is not None and scope.type == "block":
             continue  # used inside a function body, not in a signature
+        if _inside_frompyobject_impl(node, stripped):
+            continue  # trait-mandated signature; not a developer choice
         _add(
             "unjustified_borrowed",
             "CONSIDER",
@@ -260,6 +267,31 @@ def _scan_py_params(
                 )
             )
     return findings
+
+
+def _inside_frompyobject_impl(node: Any, stripped: bytes) -> bool:
+    """True if ``node`` is inside an ``impl FromPyObject for ...`` block.
+
+    PyO3 0.28's `FromPyObject::extract` and `FromPyObject::extract_bound`
+    take a `Borrowed<'a, 'py, PyAny>` parameter; the trait signature is
+    fixed, so flagging it as `unjustified_borrowed` is a categorical false
+    positive.
+
+    Tolerates path qualification (``pyo3::FromPyObject``,
+    ``pyo3::conversion::FromPyObject``, ...).
+    """
+    impl_node = find_enclosing(node, "impl_item")
+    if impl_node is None:
+        return False
+    trait_node = impl_node.child_by_field_name("trait")
+    if trait_node is None:
+        return False
+    trait_name = text_of(trait_node, stripped).strip()
+    # Strip generic args (`FromPyObject<'_>` -> `FromPyObject`) and path
+    # qualification (`pyo3::FromPyObject` -> `FromPyObject`).
+    trait_name = trait_name.split("<", 1)[0]
+    trait_name = trait_name.rsplit("::", 1)[-1].strip()
+    return trait_name == "FromPyObject"
 
 
 def _bind_only(body: Any, name: str, stripped: bytes) -> bool:
