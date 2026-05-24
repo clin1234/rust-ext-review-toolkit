@@ -128,11 +128,11 @@
     },
     "py_from_owned_ptr": {
       "deprecated": "0.28",
-      "replacement": "Bound APIs (Bound::from_owned_ptr, etc.)",
-      "rust_signature_pattern": "from_owned_ptr",
-      "detect": { "kind": "call", "name": "from_owned_ptr" },
+      "replacement": "Bound::from_owned_ptr (the replacement)",
+      "rust_signature_pattern": "Py::from_owned_ptr",
+      "detect": { "kind": "call", "name": "from_owned_ptr", "receiver": "Py" },
       "category": "unsafe_ffi",
-      "note": "Py<T> raw-pointer constructors were deprecated in 0.28."
+      "note": "Py<T>::from_owned_ptr was deprecated in 0.28; Bound::from_owned_ptr is the replacement (same leaf method name; the receiver field disambiguates)."
     }
   }
 }

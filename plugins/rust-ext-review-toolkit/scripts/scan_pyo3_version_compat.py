@@ -90,8 +90,16 @@ def _describe(entry: dict, ftype: str) -> str:
 
 
 def _build_detectors(apis: dict) -> tuple[dict, list, dict]:
-    """Index API entries by their `detect` rule: (call, call_suffix, type)."""
-    call_apis: dict[str, dict] = {}
+    """Index API entries by their `detect` rule: (call, call_suffix, type).
+
+    Two call entries may share the same leaf `name` if they are
+    distinguished by a `receiver` field (e.g. `from_owned_ptr` matches both
+    `Py::from_owned_ptr` and `Bound::from_owned_ptr`; the former is
+    deprecated, the latter is its replacement). The `call_apis` map
+    therefore stores a *list* of entries per name; `_scan_file` picks the
+    matching one by checking the call's qualifying path.
+    """
+    call_apis: dict[str, list[dict]] = {}
     call_suffix_apis: list[tuple[str, dict]] = []
     type_apis: dict[str, dict] = {}
     for entry in apis.values():
@@ -100,12 +108,45 @@ def _build_detectors(apis: dict) -> tuple[dict, list, dict]:
         if not name:
             continue
         if kind == "call":
-            call_apis[name] = entry
+            call_apis.setdefault(name, []).append(entry)
         elif kind == "call_suffix":
             call_suffix_apis.append((name, entry))
         elif kind == "type":
             type_apis[name] = entry
     return call_apis, call_suffix_apis, type_apis
+
+
+def _call_qualifier(full_callee: str) -> str:
+    """Return the segment immediately before the leaf method name.
+
+    For `Py::from_owned_ptr` this is `Py`; for `pyo3::Py::from_owned_ptr`
+    it is also `Py`; for `obj.from_owned_ptr` it is empty (method call,
+    qualifier is the receiver variable not a type). Used by the v0.2
+    `receiver` filter to distinguish `Py::from_owned_ptr` (deprecated) from
+    `Bound::from_owned_ptr` (the replacement).
+    """
+    # Strip method-call dot syntax: `a.b.c.method` has no path qualifier.
+    if "." in full_callee.split("::", 1)[0]:
+        return ""
+    head = full_callee.rsplit("::", 1)[0] if "::" in full_callee else ""
+    return head.rsplit("::", 1)[-1] if head else ""
+
+
+def _call_entry_for(call: dict, candidates: list[dict]) -> dict | None:
+    """Pick the matching entry from a list sharing the same leaf name.
+
+    If an entry has no `receiver` filter, it is the default. Entries with
+    a `receiver` only match calls whose qualifier equals that receiver.
+    """
+    qualifier = _call_qualifier(call["full_callee"])
+    fallback: dict | None = None
+    for entry in candidates:
+        receiver = (entry.get("detect") or {}).get("receiver")
+        if receiver is None:
+            fallback = entry
+        elif qualifier == receiver:
+            return entry
+    return fallback
 
 
 def _scan_file(
@@ -152,10 +193,12 @@ def _scan_file(
     for call in find_calls_in_scope(tree, stripped):
         node = call["node"]
         column = node.start_point[1] + 1
-        entry = call_apis.get(call["name"])
-        if entry is not None:
-            _emit(entry, node, call["line"], column, "MEDIUM")
-            continue
+        candidates = call_apis.get(call["name"])
+        if candidates:
+            entry = _call_entry_for(call, candidates)
+            if entry is not None:
+                _emit(entry, node, call["line"], column, "MEDIUM")
+                continue
         for suffix, suffix_entry in call_suffix_apis:
             if call["name"].endswith(suffix) and call["name"] != suffix:
                 _emit(suffix_entry, node, call["line"], column, "MEDIUM")
