@@ -129,6 +129,63 @@ class TestNestedAttach(unittest.TestCase):
         self.assertNotIn("nested_gil_attach", types_of(_TOP_LEVEL_ATTACH))
 
 
+# v0.2 regression: `Python::attach` inside a worker-thread closure (spawn,
+# spawn_blocking, or a custom GIL-release wrapper like polars's
+# `enter_polars`) must NOT be flagged as a nested attach -- the closure
+# body runs on a thread that does not inherit the outer Python token.
+# Polars hit 2/3 FPs in this category.
+
+_ATTACH_INSIDE_SPAWN_BLOCKING = """\
+use pyo3::prelude::*;
+
+fn run(py: Python<'_>) -> PyResult<()> {
+    tokio::task::spawn_blocking(move || {
+        Python::attach(|inner| {
+            let _ = inner;
+        });
+    });
+    Ok(())
+}
+"""
+
+_ATTACH_INSIDE_THREAD_SPAWN = """\
+use pyo3::prelude::*;
+
+fn run(py: Python<'_>) -> PyResult<()> {
+    std::thread::spawn(move || {
+        Python::attach(|inner| {
+            let _ = inner;
+        });
+    });
+    Ok(())
+}
+"""
+
+_ATTACH_INSIDE_ENTER_POLARS = """\
+use pyo3::prelude::*;
+
+fn run(py: Python<'_>) -> PyResult<()> {
+    py.enter_polars(|| {
+        Python::attach(|inner| {
+            let _ = inner;
+        });
+        Ok(())
+    })
+}
+"""
+
+
+class TestAttachInsideSpawnBoundaries(unittest.TestCase):
+    def test_attach_inside_spawn_blocking_not_flagged(self):
+        self.assertNotIn("nested_gil_attach", types_of(_ATTACH_INSIDE_SPAWN_BLOCKING))
+
+    def test_attach_inside_thread_spawn_not_flagged(self):
+        self.assertNotIn("nested_gil_attach", types_of(_ATTACH_INSIDE_THREAD_SPAWN))
+
+    def test_attach_inside_enter_polars_not_flagged(self):
+        self.assertNotIn("nested_gil_attach", types_of(_ATTACH_INSIDE_ENTER_POLARS))
+
+
 # --- Pattern 5: extern "C" without attach ----------------------------------
 
 _EXTERN_C_NO_ATTACH = """\
