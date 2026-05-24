@@ -38,9 +38,14 @@ fn bump<'py>(py: Python<'py>, obj: &Bound<'py, PyAny>) {
 _TRANSMUTE = """\
 use pyo3::prelude::*;
 
+// v0.2: the explicit turbofish makes the handle types visible in the call
+// text -- the scanner now requires this (see the v0.2 toolkit feedback
+// from the cryptography review: a bare `mem::transmute(obj)` is no longer
+// classified as `unsafe_handle_transmute` because it false-positived on
+// lifetime relabels of pure-Rust types).
 #[pyfunction]
 fn bad(obj: Py<PyAny>) -> Py<PyAny> {
-    unsafe { std::mem::transmute(obj) }
+    unsafe { std::mem::transmute::<Py<PyAny>, Py<PyAny>>(obj) }
 }
 """
 
@@ -205,6 +210,52 @@ class TestEdgeCases(unittest.TestCase):
         self.assertIn("summary", report)
         self.assertEqual(report["summary"]["by_classification"], {"CONSIDER": 1})
         self.assertGreaterEqual(report["functions_analyzed"], 1)
+
+
+# v0.2 regression: a BARE `mem::transmute(val)` (no turbofish, no handle
+# marker in args) inside a fn whose signature *happens* to contain a PyO3
+# handle type is NOT a handle transmute -- it is typically a pure-Rust
+# lifetime relabel. v0.1 false-positived on cryptography's
+# `pkcs7.rs::try_list_of_certificates` for exactly this shape; v0.2 only
+# escalates to `unsafe_handle_transmute` when the CALL itself references
+# handle types.
+
+_BARE_TRANSMUTE_LIFETIME_RELABEL = """\
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+
+struct OwnedCertificate<'a>(&'a [u8]);
+
+#[pyfunction]
+fn try_list<'py>(py: Python<'py>, data: Py<PyBytes>) -> PyResult<()> {
+    let val: &[u8] = &[1, 2, 3];
+    // SAFETY: pure-Rust lifetime relabel; no PyO3 handle is transmuted.
+    let _relabeled: OwnedCertificate<'static> = unsafe {
+        std::mem::transmute(OwnedCertificate(val))
+    };
+    Ok(())
+}
+"""
+
+
+class TestBareTransmuteFPRegression(unittest.TestCase):
+    def test_bare_transmute_with_handle_in_enclosing_fn_not_handle_transmute(self):
+        # The fn signature has `Py<PyBytes>`, but the transmute call text
+        # contains no handle marker. v0.1 false-positived this as
+        # `unsafe_handle_transmute`; v0.2 must classify it as a plain
+        # `unsafe_block` (and the SAFETY comment downgrades to ACCEPTABLE).
+        findings = findings_of(_BARE_TRANSMUTE_LIFETIME_RELABEL)
+        # No handle_transmute classification:
+        self.assertNotIn(
+            "unsafe_handle_transmute",
+            {f["type"] for f in findings},
+            f"bare lifetime-relabel transmute misclassified: {findings}",
+        )
+        # The unsafe block is still observed (just not escalated):
+        self.assertTrue(
+            any(f["type"] == "unsafe_block" for f in findings),
+            "the unsafe block itself should still be reported",
+        )
 
 
 if __name__ == "__main__":
