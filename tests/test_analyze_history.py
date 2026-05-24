@@ -88,5 +88,69 @@ class TestAnalyzeHistory(unittest.TestCase):
         self.assertIn("error", result)
 
 
+class TestShallowCloneDetection(unittest.TestCase):
+    """v0.2: detect shallow clones up front and caveat the envelope.
+
+    Pre-v0.2, a shallow clone returned a misleading envelope -- file ages
+    were truncation artifacts, `function_churn` was usually empty, and there
+    was no signal that the truncation was the cause. The polars review hit
+    this (clone had 55 commits over 7 days; `--unshallow` got it to 14,767
+    over 6 years). v0.2 sets `is_shallow_clone: true` in the envelope and
+    appends an explicit note.
+    """
+
+    def test_full_clone_is_not_flagged(self):
+        with _git_repo(
+            [
+                ("Initial layout", "fn a() {}\n"),
+                ("Add a function", "fn a() {}\nfn b() {}\n"),
+            ]
+        ) as repo:
+            result = ah.analyze([repo, "--last", "10"])
+        self.assertFalse(result.get("is_shallow_clone", False))
+        # No shallow-clone note expected for a full repo.
+        for note in result.get("notes", []):
+            self.assertNotIn("SHALLOW", note)
+
+    def test_shallow_clone_is_flagged_with_note(self):
+        # Make a full source repo, then clone it shallow (--depth 1) and run
+        # the analyzer against the shallow checkout.
+        with _git_repo(
+            [
+                ("Initial", "fn a() {}\n"),
+                ("Add b", "fn a() {}\nfn b() {}\n"),
+                ("Add c", "fn a() {}\nfn b() {}\nfn c() {}\n"),
+            ]
+        ) as source_repo:
+            shallow_dir = tempfile.mkdtemp(prefix="rustext_shallow_")
+            try:
+                subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--no-local",
+                        f"file://{source_repo}",
+                        shallow_dir,
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                result = ah.analyze([shallow_dir, "--days", "365"])
+            finally:
+                shutil.rmtree(shallow_dir, ignore_errors=True)
+
+        self.assertTrue(
+            result.get("is_shallow_clone"),
+            f"expected is_shallow_clone: true, got envelope: {result}",
+        )
+        notes = result.get("notes", [])
+        self.assertTrue(
+            any("SHALLOW" in n for n in notes),
+            f"expected SHALLOW-clone note, got notes: {notes}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
