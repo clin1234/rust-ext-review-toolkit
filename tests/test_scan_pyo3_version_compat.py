@@ -124,5 +124,41 @@ class TestNegatives(unittest.TestCase):
         self.assertEqual(findings_of(MINIMAL_PYO3_CRATE), [])
 
 
+# v0.2 regression: `from_owned_ptr` matches both `Py::from_owned_ptr`
+# (deprecated in 0.28) AND `Bound::from_owned_ptr` (the replacement). v0.1
+# matched on the leaf method name only and false-positived on every
+# `Bound::from_owned_ptr` call. v0.2 distinguishes by the call's
+# qualifying path; the data table adds `"receiver": "Py"`.
+
+_PY_FROM_OWNED_PTR = """\
+use pyo3::prelude::*;
+
+fn legacy(py: Python<'_>, ptr: *mut pyo3::ffi::PyObject) -> Py<PyAny> {
+    unsafe { Py::from_owned_ptr(py, ptr) }
+}
+"""
+
+_BOUND_FROM_OWNED_PTR = """\
+use pyo3::prelude::*;
+
+fn modern<'py>(py: Python<'py>, ptr: *mut pyo3::ffi::PyObject) -> Bound<'py, PyAny> {
+    unsafe { Bound::from_owned_ptr(py, ptr) }
+}
+"""
+
+
+class TestFromOwnedPtrReceiver(unittest.TestCase):
+    def test_py_from_owned_ptr_still_flagged_as_deprecated(self):
+        # Py::from_owned_ptr -- the deprecated receiver still matches.
+        types = types_of(_PY_FROM_OWNED_PTR)
+        self.assertIn("deprecated_api", types)
+
+    def test_bound_from_owned_ptr_not_flagged(self):
+        # Bound::from_owned_ptr is the REPLACEMENT, not the deprecated API.
+        # v0.1 false-positived this; v0.2 must not.
+        types = types_of(_BOUND_FROM_OWNED_PTR)
+        self.assertNotIn("deprecated_api", types)
+
+
 if __name__ == "__main__":
     unittest.main()

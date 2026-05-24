@@ -51,7 +51,11 @@ _REGISTRARS = frozenset(
     {"add_class", "add", "add_function", "add_submodule", "add_wrapped"}
 )
 # Once-cell wrappers that, holding a `Py<_>`, make a process-global object.
-_PY_GLOBAL_CELLS = ("OnceLock", "LazyLock", "OnceCell", "Lazy")
+# `PyOnceLock` is PyO3's GIL-aware once-cell (`pyo3::sync::PyOnceLock`),
+# distinct from `std::sync::OnceLock`. v0.2: added after the polars review
+# missed three `PyOnceLock<Py<PyType>>` statics outside the canonical
+# `py_modules.rs` location.
+_PY_GLOBAL_CELLS = ("PyOnceLock", "OnceLock", "LazyLock", "OnceCell", "Lazy")
 
 
 def _scan_module_statics(

@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `scan_pyclass_protocol`: `#[pyclass]` on `enum` is now audited (v0.1 only matched
+  `struct_item` targets, so cryptography's `declarative_asn1::Type` enum was silently
+  skipped). `rust_ts_utils.extract_enum_defs` mirrors `extract_struct_defs` and the
+  scanner's GC-slot check uses the flat union of variant fields.
+- `scan_common.deduplicate_findings`: include `function` in the dedup key so that the
+  same finding type on two distinct targets in one file no longer collapses into one
+  (the description normaliser strips identifier text, which would otherwise key-equal
+  them). Restored the per-target distinction lost in v0.1.
+- `discover_rust_ext`: walk up to the workspace root to resolve `Cargo.lock` when the
+  scanned crate has none of its own (cryptography's `src/rust/` scan returned
+  `pyo3_version: null` because of this). Discovery now records whether the lock came
+  from the crate root or a workspace ancestor.
+- `discover_rust_ext`: recognise workspace-shim cdylib layouts. A crate with `pyo3`
+  and `#[pymodule]` but no cdylib is no longer mechanically `out_of_scope: true` --
+  if a workspace sibling re-exports its `c_api::*` as a cdylib (the polars layout),
+  detection method `workspace_shim_cdylib` keeps it in scope. The narrow "Rust
+  binary embedding Python" classification still applies when `#[pymodule]` is absent.
+- `scan_pyclass_traits`: detect `#[pyclass]`es mutated via `&mut <T>` parameters of
+  a `#[pyfunction]` (cryptography's `LoadedProviders` was missed this way -- no
+  `#[pymethods]` impl at all, but a free function mutates the type). The
+  `missing_frozen_ft` check fires when either a `&mut self` method OR a free-fn
+  mutator exists.
+- `analyze_history`: detect shallow git clones (`git rev-parse --is-shallow-repository`)
+  and surface `is_shallow_clone: true` plus an explicit `notes` entry in the envelope.
+  v0.1 silently emitted misleading "1 commit" file ages and empty `function_churn`
+  against truncated history; v0.2 tells the reviewer to run `git fetch --unshallow`
+  before trusting the analysis.
+- `scan_lifetime_handles`: suppress `unjustified_borrowed` findings inside `impl
+  FromPyObject for ...` blocks. PyO3 0.28's `FromPyObject::extract_bound` mandates
+  `Borrowed<'a, 'py, PyAny>` as the parameter type -- the trait signature is fixed,
+  not a developer choice. Polars hit 61/61 false positives from this single shape.
+- `scan_gil_discipline`: `_has_outer_gil` recognises `*::spawn(...)`,
+  `*::spawn_blocking(...)`, `*::spawn_handler(...)`, and polars-style
+  `enter_polars(...)` wrappers as GIL-releasing boundaries. A `Python::attach`
+  inside such a closure is a valid re-attach on a worker thread, not a nested
+  attach. Polars hit 2/3 false positives in this category.
+- `scan_module_init`: recognise `PyOnceLock` (PyO3's GIL-aware once-cell) as a
+  Python once-cell wrapper. Polars's `static NDARRAY_TYPE: PyOnceLock<Py<PyType>>`
+  and similar statics outside `py_modules.rs` were missed because the cell-name
+  list only included `std::sync::OnceLock`-family names.
+- `scan_unsafe_blocks`: require the handle marker (`Bound`, `Borrowed`, `Py<`,
+  `Py[A-Z]`) in the transmute CALL TEXT (turbofish or args) -- the enclosing fn
+  signature is no longer used as a fallback signal. Cryptography's
+  `pkcs7.rs::try_list_of_certificates` bare `mem::transmute(val)` (a pure-Rust
+  lifetime relabel) was false-positived as `unsafe_handle_transmute` because the
+  enclosing fn had `Py<PyBytes>` in scope. Bare transmutes without explicit
+  turbofish now classify as `unsafe_block` instead.
+- `scan_pyo3_version_compat`: support a `receiver` field on `call` detect rules so
+  `Py::from_owned_ptr` (deprecated in 0.28) is distinguished from
+  `Bound::from_owned_ptr` (its replacement). v0.1 matched the leaf method name only
+  and false-positived every `Bound::from_owned_ptr` call.
+
+### Added
+- `rust_ts_utils.extract_enum_defs` -- enum extraction mirroring `extract_struct_defs`,
+  returning variants (with `kind`, `fields`, line info) and a flat `all_fields` view
+  for cycle-risk checks across all variants.
+- `discover_rust_ext._resolve_workspace_root` -- walk up to the nearest ancestor
+  `Cargo.toml` declaring `[workspace]`.
+- `discover_rust_ext._find_shim_cdylib_sibling` -- recognise polars-style downstream
+  shim cdylib crates that re-export an upstream crate's `c_api`.
+- `analyze_history._is_shallow_repo` -- shallow-clone detection via
+  `git rev-parse --is-shallow-repository`.
+- `scan_gil_discipline._GIL_RELEASING_BOUNDARIES` -- the set of callee names that
+  cut the outer-GIL inheritance chain (spawn / spawn_blocking / spawn_handler /
+  enter_polars / enter_polars_df / enter_polars_ok / enter_polars_series).
+- `scan_pyo3_version_compat._call_qualifier` and `_call_entry_for` -- pick the
+  matching API entry for a call by the qualifier preceding the leaf method.
+
+### Documentation
+- `docs/writing-maintainer-facing-reports.md` -- methodology guide for converting
+  toolkit output into maintainer-facing reports. Codifies patterns from the
+  cryptography v0 and polars v1 reviews: pre-flight protocol, scope-citation,
+  channel-per-item, reproducer-driven re-triage, the separate `<crate>_BEYOND_SCOPE.md`
+  companion, and per-extension lessons. Worked examples in `reports/cryptography-rust_v1/`
+  (v0) and `reports/polars_v1/` (v1).
+
 ## [0.1.0] - 2026-05-17
 
 The first release: the PyO3 review toolkit, built from

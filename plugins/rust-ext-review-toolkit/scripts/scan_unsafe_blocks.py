@@ -40,7 +40,6 @@ from rust_ts_utils import (  # noqa: E402
     extract_struct_defs,
     extract_unsafe_blocks,
     find_calls_in_scope,
-    find_enclosing,
     parse_bytes,
     strip_comments,
     text_of,
@@ -73,20 +72,6 @@ def _snippet(node: Any, source: bytes, limit: int = 120) -> str:
     """One-line, whitespace-collapsed, length-capped text for a node."""
     text = " ".join(text_of(node, source).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _enclosing_fn_signature(block: dict, stripped: bytes) -> str:
-    """Parameter list + return type of the fn enclosing an unsafe block."""
-    node = block["node"]
-    fn = node if block["kind"] == "fn" else find_enclosing(node, "function_item")
-    if fn is None:
-        return ""
-    parts: list[str] = []
-    for field in ("parameters", "return_type"):
-        child = fn.child_by_field_name(field)
-        if child is not None:
-            parts.append(text_of(child, stripped))
-    return " ".join(parts)
 
 
 def _python_in_scope(block: dict, stripped: bytes) -> bool:
@@ -155,8 +140,6 @@ def _scan_unsafe_block(
     """Build one finding for a single `unsafe` block or `unsafe fn`."""
     body = block["body_node"]
     calls = find_calls_in_scope(body, stripped) if body is not None else []
-    signature = _enclosing_fn_signature(block, stripped)
-    sig_has_handle = bool(_HANDLE_MARKER_RE.search(signature))
 
     ffi_calls: list[dict] = []
     private_calls: list[dict] = []
@@ -166,7 +149,19 @@ def _scan_unsafe_block(
         leaf = call["name"]
         if leaf in _TRANSMUTE_NAMES:
             call_text = text_of(call["node"], stripped)
-            is_handle = sig_has_handle or bool(_HANDLE_MARKER_RE.search(call_text))
+            # v0.2: a bare `mem::transmute(x)` whose CALL TEXT contains no
+            # handle marker (no turbofish like `::<Bound<...>, Py<...>>` and
+            # no `Bound`/`Py<` in the args) is NOT a handle transmute -- it
+            # is typically a pure-Rust lifetime relabel. The v0.1 heuristic
+            # used the enclosing fn signature as a fallback signal, which
+            # produced a false FIX on cryptography's
+            # `pkcs7.rs::try_list_of_certificates` (lifetime relabel of a
+            # pure-Rust `RawCertificate`, in a fn whose enclosing scope has
+            # `Py<PyBytes>` in scope -- but the transmute does not touch it).
+            # Require the marker to appear in the call itself; if the user
+            # genuinely wants the FIX classification, they should write the
+            # turbofish explicitly (which they should anyway).
+            is_handle = bool(_HANDLE_MARKER_RE.search(call_text))
             transmutes.append(
                 {
                     "snippet": _snippet(call["node"], source),

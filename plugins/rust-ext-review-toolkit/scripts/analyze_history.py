@@ -148,6 +148,24 @@ def _is_git_repo(path: Path) -> bool:
         return False
 
 
+def _is_shallow_repo(path: Path) -> bool:
+    """True if the repository is a shallow clone.
+
+    A shallow clone limits ``git log`` to the cloned depth -- ``--since`` /
+    ``--last`` windows beyond that depth return truncated history, and
+    `first_commit_in_range` dates reflect the shallow boundary rather than the
+    actual first appearance. v0.1 emitted misleading "1 commit" file ages and
+    empty `function_churn` against shallow checkouts (the polars review tripped
+    on this -- the clone had 55 commits over 7 days; `--unshallow` got it to
+    14,767 over 6 years). v0.2 detects and caveats up front.
+    """
+    try:
+        result = _run_git(["rev-parse", "--is-shallow-repository"], path, timeout=5)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def _check_script_timeout() -> bool:
     return (time.monotonic() - _SCRIPT_START) > _SCRIPT_TIMEOUT
 
@@ -471,6 +489,8 @@ def analyze(argv: list[str] | None = None) -> dict:
     if not _is_git_repo(project_root):
         return {"error": "Not a git repository", "project_root": str(project_root)}
 
+    is_shallow = _is_shallow_repo(project_root)
+
     now = datetime.now(timezone.utc)
     since = args["since"] or (now - timedelta(days=args["days"])).isoformat()
     until = args["until"] or now.isoformat()
@@ -522,6 +542,7 @@ def analyze(argv: list[str] | None = None) -> dict:
         "project_root": str(project_root),
         "scan_root": str(scan_root),
         "time_range": {"start": since, "end": until, "days": args["days"]},
+        "is_shallow_clone": is_shallow,
         "summary": {
             "total_commits": len(commits),
             "commits_by_type": dict(commits_by_type),
@@ -544,6 +565,16 @@ def analyze(argv: list[str] | None = None) -> dict:
     }
     if function_churn_note:
         result["function_churn_note"] = function_churn_note
+    if is_shallow:
+        result.setdefault("notes", []).append(
+            "Repository is a SHALLOW clone -- history is truncated at the "
+            "clone depth. `first_commit_in_range` dates reflect the shallow "
+            "boundary, NOT the actual first appearance. `function_churn` and "
+            "similar-bug detection are unreliable. Run `git fetch --unshallow` "
+            "in the repository before re-running this analysis. (v0.2: this "
+            "warning replaces the v0.1 silent emission of misleading '1 "
+            "commit' file ages.)"
+        )
     return result
 
 

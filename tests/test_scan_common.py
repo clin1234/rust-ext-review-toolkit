@@ -87,6 +87,32 @@ class TestDeduplicate(unittest.TestCase):
         ]
         self.assertEqual(len(sc.deduplicate_findings(findings)), 2)
 
+    def test_keeps_distinct_targets_in_same_file(self):
+        # v0.2 regression: pre-v0.2 the description normaliser back-ticked out
+        # identifier text, so two findings of the same TYPE on two different
+        # TARGETS in one file collapsed into one. The cryptography review
+        # missed `declarative_asn1::Type` this way. Including `function` in
+        # the dedup key restores per-target distinction.
+        findings = [
+            sc.make_finding(
+                "missing_traverse",
+                classification="CONSIDER",
+                description="`#[pyclass] Foo` holds `Py<PyAny>` but lacks `__traverse__`",
+                file="lib.rs",
+                function="Foo",
+            ),
+            sc.make_finding(
+                "missing_traverse",
+                classification="CONSIDER",
+                description="`#[pyclass] Bar` holds `Py<PyAny>` but lacks `__traverse__`",
+                file="lib.rs",
+                function="Bar",
+            ),
+        ]
+        deduped = sc.deduplicate_findings(findings)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual({f["function"] for f in deduped}, {"Foo", "Bar"})
+
 
 class TestRelativePath(unittest.TestCase):
     def test_under_root(self):
