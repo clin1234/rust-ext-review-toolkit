@@ -100,14 +100,97 @@ def _parse_cargo_toml(root: Path) -> dict | None:
     return info
 
 
-def _pyo3_from_lock(root: Path) -> str | None:
-    """Resolve the exact pyo3 version from Cargo.lock, if present."""
-    data = _load_toml(root / "Cargo.lock")
-    packages = data.get("package", [])
-    if isinstance(packages, list):
-        for pkg in packages:
-            if isinstance(pkg, dict) and pkg.get("name") == "pyo3":
-                return pkg.get("version")
+def _resolve_workspace_root(root: Path) -> Path | None:
+    """Walk up from ``root`` to the nearest ancestor whose ``Cargo.toml``
+    declares a ``[workspace]`` table. Returns ``None`` if not in a workspace.
+
+    Used to find the `Cargo.lock` that resolves a workspace dependency's
+    version, and to enumerate workspace siblings (for shim-cdylib detection).
+    Cryptography's `src/rust/` is a workspace member; its `Cargo.lock` lives
+    one level up, which the v0.1 lookup at `root / "Cargo.lock"` missed.
+    """
+    cur = root.parent
+    while cur != cur.parent:
+        toml_path = cur / "Cargo.toml"
+        if toml_path.is_file():
+            data = _load_toml(toml_path)
+            if isinstance(data, dict) and "workspace" in data:
+                return cur
+        cur = cur.parent
+    return None
+
+
+def _pyo3_from_lock(root: Path) -> tuple[str | None, str | None]:
+    """Resolve the exact pyo3 version from a ``Cargo.lock``.
+
+    Looks at ``root`` first, then climbs to a workspace root (if any). The
+    workspace fallback fixes the v0.1 gap where cryptography's `src/rust/`
+    scan returned `pyo3_version: null` even though `Cargo.lock` was one
+    level up. Returns ``(version, lock_dir)`` so the discovery envelope can
+    record where the lock came from; both are ``None`` on miss.
+    """
+    candidates: list[Path] = [root]
+    ws_root = _resolve_workspace_root(root)
+    if ws_root is not None and ws_root != root:
+        candidates.append(ws_root)
+
+    for candidate in candidates:
+        data = _load_toml(candidate / "Cargo.lock")
+        packages = data.get("package", []) if isinstance(data, dict) else []
+        if isinstance(packages, list):
+            for pkg in packages:
+                if isinstance(pkg, dict) and pkg.get("name") == "pyo3":
+                    version = pkg.get("version")
+                    if version:
+                        return version, str(candidate)
+    return None, None
+
+
+def _find_shim_cdylib_sibling(root: Path, crate_name: str) -> Path | None:
+    """Return a workspace sibling that emits a cdylib re-exporting this crate.
+
+    Polars's layout puts the cdylib emission in tiny downstream crates
+    (`py-polars/runtime/polars-runtime-{32,64,compat}/src/lib.rs`, each two
+    lines: `pub use polars_python::c_api::*;`). When we see that pattern,
+    this crate IS the PyO3 surface even though it has no cdylib in its own
+    Cargo.toml -- so we override the v0.1 ``out_of_scope: true`` decision.
+
+    The match is conservative: require (a) the sibling builds a cdylib and
+    (b) the sibling's ``lib.rs`` references this crate's identifier as a
+    ``use``/``pub use`` path. Returns the sibling's directory, or ``None``.
+    """
+    if not crate_name:
+        return None
+    ws_root = _resolve_workspace_root(root)
+    if ws_root is None:
+        return None
+    ws_data = _load_toml(ws_root / "Cargo.toml")
+    workspace = ws_data.get("workspace", {}) if isinstance(ws_data, dict) else {}
+    members = workspace.get("members", []) if isinstance(workspace, dict) else []
+    if not isinstance(members, list):
+        return None
+    # The dependency name uses hyphens (`polars-python`); the source-side
+    # `use` path uses underscores (`polars_python`). Tolerate both.
+    crate_ident = crate_name.replace("-", "_")
+    for member_pattern in members:
+        if not isinstance(member_pattern, str):
+            continue
+        for member_dir in sorted(ws_root.glob(member_pattern)):
+            if not member_dir.is_dir() or member_dir.resolve() == root.resolve():
+                continue
+            sibling_cargo = _parse_cargo_toml(member_dir)
+            if sibling_cargo is None or "cdylib" not in sibling_cargo["crate_types"]:
+                continue
+            lib_rs = member_dir / "src" / "lib.rs"
+            if not lib_rs.is_file():
+                continue
+            text = _safe_read(lib_rs)
+            if (
+                f"pub use {crate_ident}" in text
+                or f"use {crate_ident}::" in text
+                or f" {crate_ident}::" in text
+            ):
+                return member_dir
     return None
 
 
@@ -197,11 +280,37 @@ def discover(target: str) -> dict:
     elif backend.startswith("setuptools-rust"):
         is_pyo3, detection_method = True, "setuptools_rust"
     elif has_pyo3_dep and not has_cdylib:
-        is_pyo3, out_of_scope, detection_method = True, True, "cargo_toml_no_cdylib"
-        notes.append(
-            "pyo3 dependency without a cdylib crate-type: this looks like a "
-            "Rust binary embedding Python, which this toolkit does not review."
-        )
+        # v0.2: a crate with `pyo3` and `#[pymodule]` IS the PyO3 surface
+        # regardless of where the cdylib is emitted. The polars layout has
+        # the cdylib in downstream shim crates that re-export this crate's
+        # `c_api::*`. Distinguish that case from the rare "Rust binary
+        # embedding Python" case (which has no `#[pymodule]`).
+        if module_name:
+            shim_sibling = _find_shim_cdylib_sibling(
+                root, cargo["crate_name"] if cargo else ""
+            )
+            if shim_sibling is not None:
+                is_pyo3, detection_method = True, "workspace_shim_cdylib"
+                notes.append(
+                    f"cdylib is emitted by workspace sibling "
+                    f"`{shim_sibling.name}/` (re-exports this crate's "
+                    f"`#[pymodule]` entry points). This crate is the PyO3 "
+                    f"surface; review accordingly."
+                )
+            else:
+                is_pyo3, detection_method = True, "pymodule_no_cdylib"
+                notes.append(
+                    "This crate defines `#[pymodule]` entry points but has "
+                    "no `cdylib` crate-type and no obvious workspace shim. "
+                    "The cdylib may be emitted by a downstream consumer."
+                )
+        else:
+            is_pyo3, out_of_scope, detection_method = True, True, "cargo_toml_no_cdylib"
+            notes.append(
+                "pyo3 dependency without a cdylib crate-type and no "
+                "`#[pymodule]` in source: this looks like a Rust binary "
+                "embedding Python, which this toolkit does not review."
+            )
     elif uses_pyo3_in_src:
         is_pyo3, detection_method = True, "rs_fallback"
         notes.append("Detected via `use pyo3` in source; no build-config signal.")
@@ -211,12 +320,24 @@ def discover(target: str) -> dict:
             "Cargo.toml is a workspace root; member crates may need separate analysis."
         )
 
-    lock_version = _pyo3_from_lock(root)
+    lock_version, lock_dir = _pyo3_from_lock(root)
     toml_version = cargo["pyo3_version"] if cargo else None
     pyo3_version = lock_version or toml_version
-    version_source = (
-        "Cargo.lock" if lock_version else ("Cargo.toml" if toml_version else None)
-    )
+    version_source: str | None
+    if lock_version:
+        # Identify whether the lock came from the crate root or a workspace
+        # ancestor; downstream agents care because the toml-declared version
+        # range may differ from the workspace-resolved version.
+        if lock_dir == str(root):
+            version_source = "Cargo.lock"
+        else:
+            version_source = "workspace Cargo.lock"
+            notes.append(
+                f"pyo3 version resolved from workspace `Cargo.lock` at "
+                f"`{lock_dir}` (this crate's directory has no `Cargo.lock`)."
+            )
+    else:
+        version_source = "Cargo.toml" if toml_version else None
     features = cargo["pyo3_features"] if cargo else []
     ft_target, ft_signals = _free_threading(root, rs_files)
 
