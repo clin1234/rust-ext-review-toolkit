@@ -206,5 +206,99 @@ class TestNegatives(unittest.TestCase):
         self.assertEqual(findings_of(PYO3_CRATE_WITH_PYCLASS), [])
 
 
+# v0.2 regression: two distinct structs in the same file with the same
+# protocol gap must each be reported. Pre-v0.2 the dedup key normalised the
+# struct identifier out of the description and collapsed both into one
+# finding -- the cryptography review missed `declarative_asn1::Type` this
+# way.
+_TWO_STRUCTS_SAME_GAP = """\
+use pyo3::prelude::*;
+
+#[pyclass]
+struct Node {
+    child: Py<PyAny>,
+}
+
+#[pymethods]
+impl Node {
+    #[new]
+    fn new(child: Py<PyAny>) -> Self { Self { child } }
+}
+
+#[pyclass]
+struct Edge {
+    target: Py<PyAny>,
+}
+
+#[pymethods]
+impl Edge {
+    #[new]
+    fn new(target: Py<PyAny>) -> Self { Self { target } }
+}
+"""
+
+
+class TestDedupAcrossTargets(unittest.TestCase):
+    def test_two_structs_same_gap_both_reported(self):
+        findings = findings_of(_TWO_STRUCTS_SAME_GAP)
+        traverse_findings = [f for f in findings if f["type"] == "missing_traverse"]
+        traverse_targets = {f["function"] for f in traverse_findings}
+        self.assertEqual(
+            traverse_targets,
+            {"Node", "Edge"},
+            f"expected missing_traverse on Node AND Edge, got {traverse_findings}",
+        )
+
+
+# v0.2 enhancement: `#[pyclass]` on an `enum` must be checked just like a
+# struct. Enum variants holding `Py<…>` are the cycle-risk equivalent of a
+# struct field holding `Py<…>` -- the cryptography review missed
+# `declarative_asn1::Type` (an enum) because the scanner only matched
+# `struct_item` targets.
+_PYCLASS_ENUM_WITH_PY_HANDLE = """\
+use pyo3::prelude::*;
+
+#[pyclass]
+enum Type {
+    Leaf,
+    Wrapped(Py<PyAny>),
+}
+
+#[pymethods]
+impl Type {
+    #[staticmethod]
+    fn leaf() -> Self { Type::Leaf }
+}
+"""
+
+_PYCLASS_ENUM_LEAFY = """\
+use pyo3::prelude::*;
+
+#[pyclass]
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+#[pymethods]
+impl Color {
+    #[staticmethod]
+    fn red() -> Self { Color::Red }
+}
+"""
+
+
+class TestPyclassEnum(unittest.TestCase):
+    def test_enum_with_py_handle_variant_flags_missing_traverse(self):
+        types = types_of(_PYCLASS_ENUM_WITH_PY_HANDLE)
+        self.assertIn("missing_traverse", types)
+        self.assertIn("missing_clear", types)
+
+    def test_leafy_enum_is_clean(self):
+        # No variant holds a Py handle => no GC slots required.
+        self.assertEqual(findings_of(_PYCLASS_ENUM_LEAFY), [])
+
+
 if __name__ == "__main__":
     unittest.main()
