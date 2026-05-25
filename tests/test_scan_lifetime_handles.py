@@ -134,5 +134,62 @@ class TestNegatives(unittest.TestCase):
         self.assertEqual(findings_of(PYO3_CRATE_WITH_PYCLASS), [])
 
 
+# v0.2 regression: PyO3 0.28's `FromPyObject::extract` mandates
+# `Borrowed<'a, 'py, PyAny>` as the parameter type. Polars hit 61/61 FPs
+# from this single shape: every `Wrap<T>` / per-class `FromPyObject` impl
+# triggered `unjustified_borrowed`. The fix suppresses findings whose
+# enclosing impl is `FromPyObject`.
+
+_BORROWED_IN_FROMPYOBJECT = """\
+use pyo3::prelude::*;
+
+struct Wrap<T>(T);
+
+impl<'py> FromPyObject<'py> for Wrap<i64> {
+    fn extract_bound(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        Ok(Wrap(ob.extract()?))
+    }
+}
+"""
+
+_BORROWED_IN_QUALIFIED_FROMPYOBJECT = """\
+use pyo3::prelude::*;
+
+struct Wrap<T>(T);
+
+impl<'py> pyo3::FromPyObject<'py> for Wrap<i64> {
+    fn extract_bound(ob: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        Ok(Wrap(ob.extract()?))
+    }
+}
+"""
+
+_BORROWED_OUTSIDE_FROMPYOBJECT = """\
+use pyo3::prelude::*;
+
+// A genuine `Borrowed` choice -- in an ordinary fn, not a FromPyObject impl.
+// This should still be flagged so the reviewer can confirm the lifetime
+// extra-ness is justified.
+fn peek<'a, 'py>(x: Borrowed<'a, 'py, PyAny>) -> PyResult<()> {
+    let _ = x;
+    Ok(())
+}
+"""
+
+
+class TestBorrowedFromPyObjectSuppression(unittest.TestCase):
+    def test_borrowed_inside_frompyobject_not_flagged(self):
+        self.assertNotIn("unjustified_borrowed", types_of(_BORROWED_IN_FROMPYOBJECT))
+
+    def test_borrowed_inside_qualified_frompyobject_not_flagged(self):
+        self.assertNotIn(
+            "unjustified_borrowed", types_of(_BORROWED_IN_QUALIFIED_FROMPYOBJECT)
+        )
+
+    def test_borrowed_in_ordinary_fn_still_flagged(self):
+        # Sanity: the suppression is scoped to FromPyObject impls, not blanket.
+        self.assertIn("unjustified_borrowed", types_of(_BORROWED_OUTSIDE_FROMPYOBJECT))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -134,5 +134,87 @@ class TestNegatives(unittest.TestCase):
         self.assertEqual(findings_of(PYO3_CRATE_WITH_PYCLASS), [])
 
 
+# v0.2 enhancement: a `#[pyclass]` mutated via `&mut <T>` parameter of a
+# `#[pyfunction]` (rather than via `&mut self` in `#[pymethods]`) is just as
+# exposed to free-threading races as a method mutator. The cryptography
+# review's `LoadedProviders` was missed this way.
+_FREE_FN_MUTATOR = """\
+use pyo3::prelude::*;
+
+#[pyclass]
+struct LoadedProviders(Vec<String>);
+
+#[pyfunction]
+fn add_provider(providers: &mut LoadedProviders, name: String) {
+    providers.0.push(name);
+}
+
+#[pymodule]
+fn m(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.gil_used(false)?;
+    m.add_class::<LoadedProviders>()?;
+    m.add_function(wrap_pyfunction!(add_provider, m)?)?;
+    Ok(())
+}
+"""
+
+
+class TestFreeFnMutatorFt(unittest.TestCase):
+    def test_pyclass_mutated_via_pyfunction_is_flagged(self):
+        with TempRustExtension(
+            {"src/lib.rs": _FREE_FN_MUTATOR, ".github/workflows/ci.yml": _FT_CI}
+        ) as ext:
+            findings = sub.analyze(str(ext.root))["findings"]
+        frozen = [f for f in findings if f["type"] == "missing_frozen_ft"]
+        self.assertEqual(len(frozen), 1, f"unexpected findings: {findings}")
+        self.assertEqual(frozen[0]["details"]["struct"], "LoadedProviders")
+        self.assertTrue(frozen[0]["details"]["mutated_via_free_fn"])
+        self.assertFalse(frozen[0]["details"]["mutated_via_method"])
+
+
+# v0.2 regression: `#[pyclass(<opts>, frozen)]` -- frozen NOT first, with
+# other options around it -- must be detected as frozen. The polars review
+# blamed `scan_pyclass_traits` for an overcount that was actually in the
+# rust-codegen-mapper preflight agent prompt; this regression test pins down
+# the correct scanner behaviour so the misattribution can't recur.
+_PYCLASS_FROZEN_WITH_OTHER_OPTS_AND_MUT_METHOD = """\
+use pyo3::prelude::*;
+
+#[pyclass(name = "Ctr", frozen, dict)]
+struct Counter {
+    value: std::sync::atomic::AtomicI64,
+}
+
+#[pymethods]
+impl Counter {
+    fn bump(&mut self) {
+        // (silly: frozen + interior mutability is the canonical FT-safe shape,
+        // but we exercise the &mut self method shape to ensure the frozen flag
+        // wins -- v0.2 regression for the rust-codegen-mapper miscount.)
+        self.value.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+"""
+
+
+class TestFrozenDetectionWithMixedOpts(unittest.TestCase):
+    def test_frozen_with_other_opts_is_not_flagged(self):
+        # The scanner correctly reads `frozen` out of a mixed option list.
+        # If the agent prompt overcounted in the polars preflight, that is a
+        # docs problem, not a scanner problem. This test pins the contract.
+        with TempRustExtension(
+            {
+                "src/lib.rs": _PYCLASS_FROZEN_WITH_OTHER_OPTS_AND_MUT_METHOD,
+                ".github/workflows/ci.yml": _FT_CI,
+            }
+        ) as ext:
+            findings = sub.analyze(str(ext.root))["findings"]
+        self.assertNotIn(
+            "missing_frozen_ft",
+            {f["type"] for f in findings},
+            f"frozen with other opts misdetected as non-frozen: {findings}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

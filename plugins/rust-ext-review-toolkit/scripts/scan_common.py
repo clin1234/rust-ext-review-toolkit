@@ -138,14 +138,23 @@ def deduplicate_findings(findings: list[dict]) -> list[dict]:
         text = re.sub(r"'[^']+'", "'X'", text)
         return text
 
-    groups: dict[tuple[str, str, str], list[dict]] = {}
+    groups: dict[tuple[str, str, str, str], list[dict]] = {}
     for f in findings:
-        key = (
-            str(f.get("type", "")),
-            str(f.get("file", "")),
-            _normalise(str(f.get("description", ""))),
-        )
-        groups.setdefault(key, []).append(f)
+        # Include `function` in the dedup key so that the SAME finding-type on
+        # TWO different targets in the same file does not collapse into one --
+        # the description normaliser back-ticks out identifier text, which
+        # would otherwise make "`Foo` missing __traverse__" and "`Bar` missing
+        # __traverse__" key-equal. (See v0.2 toolkit feedback from cryptography
+        # review: `declarative_asn1::Type` was missed this way.)
+        groups.setdefault(
+            (
+                str(f.get("type", "")),
+                str(f.get("file", "")),
+                str(f.get("function", "")),
+                _normalise(str(f.get("description", ""))),
+            ),
+            [],
+        ).append(f)
 
     result: list[dict] = []
     for group in groups.values():

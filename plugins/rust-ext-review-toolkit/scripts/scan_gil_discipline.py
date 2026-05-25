@@ -68,6 +68,33 @@ _UNCHECKED_NAMES = frozenset({"attach_unchecked", "with_gil_unchecked"})
 # Closures whose body runs with the interpreter attached (a `py` is in scope).
 _GIL_HOLDING_CALLEES = _ATTACH_NAMES | _UNCHECKED_NAMES
 
+# v0.2: closures whose body MAY run with the GIL released. The strict
+# `_DETACH_NAMES` covers `py.detach`/`py.allow_threads` only -- but the
+# `_has_outer_gil` walk needs to recognize more boundaries:
+#
+#   - `*::spawn(...)`, `*::spawn_blocking(...)`, `*::spawn_handler(...)` --
+#     the closure body runs on a worker thread that does not inherit the
+#     caller's `Python<'py>` token.
+#   - `*.enter_polars(...)` -- polars's custom GIL-release wrapper that
+#     internally calls `py.detach(...)`. Without recognising it the
+#     scanner false-positives on every `Python::attach` correctly used
+#     inside a worker-thread re-attach pattern (polars hit 2/3 FPs).
+#
+# Used ONLY for the `_has_outer_gil` walk; not for `_scan_detach_closures`,
+# which still needs the strict `_DETACH_NAMES` set to avoid widening
+# `gil_violation_in_detach` to non-detach closures.
+_GIL_RELEASING_BOUNDARIES = _DETACH_NAMES | frozenset(
+    {
+        "spawn",
+        "spawn_blocking",
+        "spawn_handler",
+        "enter_polars",
+        "enter_polars_df",
+        "enter_polars_ok",
+        "enter_polars_series",
+    }
+)
+
 # Substrings that mark a function body as doing Python work.
 _PYO3_USAGE_MARKERS = (
     "pyo3::",
@@ -146,13 +173,21 @@ def _scan_detach_closures(
 def _has_outer_gil(
     node: Any, closure_callees: dict[int, str | None], source: bytes
 ) -> bool:
-    """True if an `attach` call already runs with the interpreter attached."""
+    """True if an `attach` call already runs with the interpreter attached.
+
+    Walks up the parent chain. A closure passed to a GIL-releasing or
+    thread-spawning callee (see `_GIL_RELEASING_BOUNDARIES`) cuts the chain --
+    the closure body does not inherit the caller's `Python<'py>` token. A
+    closure passed to an attaching callee (`Python::attach` / `with_gil`)
+    short-circuits to True. The enclosing function's parameter list provides
+    the final fallback signal.
+    """
     current = node.parent
     while current is not None:
         if current.type == "closure_expression":
             callee = closure_callees.get(current.id)
-            if callee in _DETACH_NAMES:
-                return False  # the GIL was released before reaching here
+            if callee in _GIL_RELEASING_BOUNDARIES:
+                return False  # the closure body runs without an inherited GIL
             if callee in _GIL_HOLDING_CALLEES:
                 return True
         elif current.type == "function_item":

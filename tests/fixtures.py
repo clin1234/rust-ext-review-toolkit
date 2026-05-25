@@ -97,10 +97,14 @@ fn bad_function<'py>(py: Python<'py>, obj: Py<PyAny>) -> PyObject {
     imported.getattr("dumps").unwrap().into()
 }
 
-// Bug 5 (unsafe-block-auditor): transmute between handle types
+// Bug 5 (unsafe-block-auditor): transmute between handle types.
+// v0.2: explicit turbofish required for the scanner to classify this as
+// `unsafe_handle_transmute` -- a bare `transmute(obj)` is no longer enough
+// (the v0.1 heuristic that used the enclosing fn signature as a fallback
+// produced a false positive on lifetime relabels of pure-Rust types).
 #[pyfunction]
 fn bad_transmute(obj: Py<PyAny>) -> Py<PyAny> {
-    unsafe { std::mem::transmute(obj) }
+    unsafe { std::mem::transmute::<Py<PyAny>, Py<PyAny>>(obj) }
 }
 
 // Bug 6 (lifetime-handle-checker): legacy &PyAny

@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Audit `#[pymethods]` protocol correctness in Rust/PyO3 extension code.
 
-For each `#[pyclass]` this scanner finds the matching `#[pymethods] impl`,
-enumerates the methods, and checks the protocol shapes (design SS3.2.6):
+For each `#[pyclass]` (`struct` *or* `enum`) this scanner finds the matching
+`#[pymethods] impl`, enumerates the methods, and checks the protocol shapes
+(design SS3.2.6):
 
-  - a `#[pyclass]` that can hold reference cycles (a `Py<T>`/`Bound` field, or
-    `dict`/`weakref`) but lacks `__traverse__` / `__clear__`
-    (`missing_traverse`, `missing_clear`)
+  - a `#[pyclass]` that can hold reference cycles (a `Py<T>`/`Bound` field
+    or enum variant, or `dict`/`weakref`) but lacks `__traverse__` /
+    `__clear__` (`missing_traverse`, `missing_clear`)
   - a `#[getter]` that takes arguments (`getter_with_args`)
   - a `__richcmp__` whose `match` on `CompareOp` omits operators with no
     wildcard arm (`richcmp_incomplete`)
   - a `__hash__` that does not return `isize`/`u64` (`hash_return_type`)
   - `#[new]` together with an `__init__` method, or a literal `__new__`
     method (`new_init_collision`)
+
+For enum `#[pyclass]`es, "fields" is the union of every variant's fields --
+the cycle-risk question is variant-agnostic.
 
 The scan is per file: a `#[pyclass]` whose `#[pymethods] impl` is in another
 file is skipped (conservative -- avoids false `missing_traverse` reports).
@@ -32,6 +36,7 @@ from discover_rust_ext import discover  # noqa: E402
 from rust_ts_utils import (  # noqa: E402
     extract_attribute_targets,
     extract_attributes,
+    extract_enum_defs,
     extract_fn_items,
     extract_impl_blocks,
     extract_struct_defs,
@@ -105,7 +110,7 @@ def _hash_return_ok(return_type: str | None) -> bool:
 
 
 def _check_protocol(
-    struct_name: str,
+    type_name: str,
     impl: dict,
     fields: list[dict],
     options: dict,
@@ -114,7 +119,7 @@ def _check_protocol(
     tree: object,
     rel: str,
 ) -> list[dict]:
-    """Check one `#[pyclass]` / `#[pymethods]` pair."""
+    """Check one `#[pyclass]` / `#[pymethods]` pair (struct or enum)."""
     body = impl["body_node"]
     methods = extract_fn_items(body, stripped) if body is not None else []
     method_names = {m["name"] for m in methods}
@@ -131,10 +136,10 @@ def _check_protocol(
             description=desc,
             file=rel,
             line=line,
-            function=struct_name,
+            function=type_name,
             category="protocol",
             fix_template=fix,
-            details={"struct": struct_name, **details},
+            details={"struct": type_name, **details},
         )
 
     # Reference-cycle participation requires GC slots.
@@ -155,7 +160,7 @@ def _check_protocol(
                         "HIGH",
                         impl["start_line"],
                         (
-                            f"`#[pyclass] {struct_name}` holds an owned Python "
+                            f"`#[pyclass] {type_name}` holds an owned Python "
                             f"handle (or `dict`/`weakref`) but its "
                             f"`#[pymethods]` impl has no `{slot}`. If the class "
                             f"can take part in a reference cycle, that cycle "
@@ -185,7 +190,7 @@ def _check_protocol(
                     "HIGH",
                     method["start_line"],
                     (
-                        f"`#[getter] {method['name']}` on `{struct_name}` takes "
+                        f"`#[getter] {method['name']}` on `{type_name}` takes "
                         f"argument(s). A getter is invoked as attribute access "
                         f"and must take only `&self` (optionally `py`)."
                     ),
@@ -210,7 +215,7 @@ def _check_protocol(
                     "MEDIUM",
                     richcmp["start_line"],
                     (
-                        f"`__richcmp__` on `{struct_name}` matches `CompareOp` "
+                        f"`__richcmp__` on `{type_name}` matches `CompareOp` "
                         f"but omits {', '.join(missing)} with no wildcard arm "
                         f"-- unhandled operators will not fall back to "
                         f"`NotImplemented`."
@@ -233,7 +238,7 @@ def _check_protocol(
                     "MEDIUM",
                     hash_fn["start_line"],
                     (
-                        f"`__hash__` on `{struct_name}` returns "
+                        f"`__hash__` on `{type_name}` returns "
                         f"`{hash_fn['return_type'] or '()'}`; PyO3 expects "
                         f"`isize` (or `u64`)."
                     ),
@@ -250,7 +255,7 @@ def _check_protocol(
                 "HIGH",
                 new_attr_method["start_line"],
                 (
-                    f"`{struct_name}` has both a `#[new]` constructor and an "
+                    f"`{type_name}` has both a `#[new]` constructor and an "
                     f"`__init__` method -- PyO3 constructs via `#[new]`; the "
                     f"`__init__` makes construction semantics ambiguous."
                 ),
@@ -266,7 +271,7 @@ def _check_protocol(
                 "HIGH",
                 new_fn["start_line"],
                 (
-                    f"`{struct_name}` defines a method literally named "
+                    f"`{type_name}` defines a method literally named "
                     f"`__new__`. PyO3 uses the `#[new]` attribute on a normal "
                     f"method (conventionally `new`), not a `__new__` method."
                 ),
@@ -277,10 +282,20 @@ def _check_protocol(
 
 
 def _scan_file(tree: object, source: bytes, stripped: bytes, rel: str) -> list[dict]:
-    """Check every `#[pyclass]` whose `#[pymethods] impl` is in this file."""
-    struct_fields = {
-        s["name"]: s["fields"] for s in extract_struct_defs(tree, stripped)
-    }
+    """Check every `#[pyclass]` whose `#[pymethods] impl` is in this file.
+
+    `#[pyclass]` accepts both `struct` and `enum` targets; both shapes need
+    the same protocol checks (GC slots, richcmp, hash, getter, new/__init__).
+    For enums, the "fields" set is the union of all variant fields -- the
+    `_holds_py_handle` question is "could this type hold a Python handle
+    *anywhere*?", which is variant-agnostic.
+    """
+    type_fields: dict[str, list[dict]] = {}
+    for s in extract_struct_defs(tree, stripped):
+        type_fields[s["name"]] = s["fields"]
+    for e in extract_enum_defs(tree, stripped):
+        type_fields[e["name"]] = e["all_fields"]
+
     pymethods_impls: dict[str, dict] = {}
     for impl in extract_impl_blocks(tree, stripped):
         if any(
@@ -291,18 +306,18 @@ def _scan_file(tree: object, source: bytes, stripped: bytes, rel: str) -> list[d
     findings: list[dict] = []
     for hit in extract_attribute_targets(tree, stripped, "pyclass"):
         target = hit["target"]
-        if target.type != "struct_item":
+        if target.type not in ("struct_item", "enum_item"):
             continue
         name_node = target.child_by_field_name("name")
-        struct_name = text_of(name_node, stripped) if name_node is not None else ""
-        pyimpl = pymethods_impls.get(struct_name)
+        type_name = text_of(name_node, stripped) if name_node is not None else ""
+        pyimpl = pymethods_impls.get(type_name)
         if pyimpl is None:
             continue  # #[pymethods] impl not in this file -- skip conservatively
         findings.extend(
             _check_protocol(
-                struct_name,
+                type_name,
                 pyimpl,
-                struct_fields.get(struct_name, []),
+                type_fields.get(type_name, []),
                 parse_attribute_options(hit["attr"]["args_text"]),
                 source,
                 stripped,

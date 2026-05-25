@@ -466,6 +466,113 @@ def extract_struct_defs(tree_or_node: object, source: bytes) -> list[dict]:
 
 
 # --------------------------------------------------------------------------
+# Enum definitions
+# --------------------------------------------------------------------------
+
+
+def extract_enum_defs(tree_or_node: object, source: bytes) -> list[dict]:
+    """Extract `enum` definitions.
+
+    Returns dicts with keys:
+      - name: str
+      - variants: list of {name, kind, fields, node, line}
+          - kind: "unit" | "tuple" | "struct"
+          - fields: list of {name, type, node, line}  (None name for tuple variants)
+      - all_fields: list of {name, type, node, line, variant}  (flattened across
+        variants -- convenient for "does this enum hold a Py handle anywhere?"
+        checks without re-walking variants)
+      - node, start_line
+
+    Mirrors `extract_struct_defs` so downstream consumers can treat structs and
+    enums uniformly when the question is shape-of-data, not shape-of-name.
+    """
+    results: list[dict] = []
+    for node in walk(tree_or_node, "enum_item"):
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            continue
+        body = node.child_by_field_name("body")
+        variants: list[dict] = []
+        all_fields: list[dict] = []
+        if body is not None:
+            for child in body.children:
+                if child.type != "enum_variant":
+                    continue
+                vname_node = child.child_by_field_name("name")
+                vname = text_of(vname_node, source) if vname_node is not None else ""
+                vbody = child.child_by_field_name("body")
+                vfields: list[dict] = []
+                kind = "unit"
+                if vbody is not None and vbody.type == "ordered_field_declaration_list":
+                    kind = "tuple"
+                    # In an enum tuple variant the types are *direct* children
+                    # of the ordered_field_declaration_list (each carrying
+                    # field_name "type"). In a tuple struct they are wrapped
+                    # in `field_declaration` nodes. The grammar differs from
+                    # `extract_struct_defs`, so iterate over typed children
+                    # rather than filtering on `field_declaration`.
+                    for fchild in vbody.children:
+                        if fchild.type in ("(", ")", ","):
+                            continue
+                        # Most variant fields are direct type nodes. Some
+                        # private/visibility-qualified variants may still wrap
+                        # in `field_declaration`; handle both.
+                        if fchild.type == "field_declaration":
+                            ftype = fchild.child_by_field_name("type")
+                            ttext = (
+                                text_of(ftype, source)
+                                if ftype is not None
+                                else text_of(fchild, source)
+                            )
+                        else:
+                            ttext = text_of(fchild, source)
+                        vfields.append(
+                            {
+                                "name": None,
+                                "type": ttext,
+                                "node": fchild,
+                                "line": node_line(fchild),
+                            }
+                        )
+                elif vbody is not None and vbody.type == "field_declaration_list":
+                    kind = "struct"
+                    for fchild in vbody.children:
+                        if fchild.type != "field_declaration":
+                            continue
+                        fname = fchild.child_by_field_name("name")
+                        ftype = fchild.child_by_field_name("type")
+                        vfields.append(
+                            {
+                                "name": text_of(fname, source) if fname else None,
+                                "type": text_of(ftype, source) if ftype else "",
+                                "node": fchild,
+                                "line": node_line(fchild),
+                            }
+                        )
+                variants.append(
+                    {
+                        "name": vname,
+                        "kind": kind,
+                        "fields": vfields,
+                        "node": child,
+                        "line": node_line(child),
+                    }
+                )
+                for f in vfields:
+                    all_fields.append({**f, "variant": vname})
+        results.append(
+            {
+                "name": text_of(name_node, source),
+                "variants": variants,
+                "all_fields": all_fields,
+                "node": node,
+                "start_line": node_line(node),
+            }
+        )
+    return results
+
+
+# --------------------------------------------------------------------------
 # Unsafe blocks and unsafe fns
 # --------------------------------------------------------------------------
 

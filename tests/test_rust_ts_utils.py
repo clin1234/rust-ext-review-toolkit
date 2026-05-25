@@ -104,6 +104,34 @@ class TestStructDefs(unittest.TestCase):
         self.assertEqual([s["name"] for s in structs], ["Counter"])
 
 
+class TestEnumDefs(unittest.TestCase):
+    def test_unit_tuple_struct_variants(self):
+        tree, src = tree_and_src(
+            "enum Shape { Unit, Wrap(Py<PyAny>), Named { x: i64, h: Py<PyAny> } }"
+        )
+        enums = rtu.extract_enum_defs(tree, src)
+        self.assertEqual(len(enums), 1)
+        e = enums[0]
+        self.assertEqual(e["name"], "Shape")
+        kinds = {v["name"]: v["kind"] for v in e["variants"]}
+        self.assertEqual(kinds, {"Unit": "unit", "Wrap": "tuple", "Named": "struct"})
+
+    def test_all_fields_flatten_finds_py_handles(self):
+        # The cryptography `declarative_asn1::Type`-shaped case: a variant
+        # carries a Python handle; protocol-checker needs to see it via the
+        # flat `all_fields` view.
+        tree, src = tree_and_src("enum T { Leaf, Wrap(Py<PyAny>) }")
+        e = rtu.extract_enum_defs(tree, src)[0]
+        flat_types = [f["type"] for f in e["all_fields"]]
+        self.assertEqual(flat_types, ["Py<PyAny>"])
+        self.assertEqual(e["all_fields"][0]["variant"], "Wrap")
+
+    def test_leaf_only_enum_has_empty_flat_fields(self):
+        tree, src = tree_and_src("enum Color { Red, Green, Blue }")
+        e = rtu.extract_enum_defs(tree, src)[0]
+        self.assertEqual(e["all_fields"], [])
+
+
 class TestAttributes(unittest.TestCase):
     def test_attribute_targets(self):
         tree, src = tree_and_src(PYO3_CRATE_WITH_PYCLASS)

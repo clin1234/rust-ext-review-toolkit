@@ -92,5 +92,54 @@ class TestNegatives(unittest.TestCase):
         self.assertEqual(findings_of(PYO3_CRATE_WITH_PYCLASS), [])
 
 
+# v0.2 regression: `PyOnceLock<Py<…>>` (PyO3's GIL-aware once-cell, distinct
+# from `std::sync::OnceLock`) holds a process-global Python object. The
+# polars review hit this -- `NDARRAY_TYPE` and `DECIMAL_TYPE` in
+# `src/conversion/any_value.rs` and similar statics in non-canonical
+# locations were silently missed because `PyOnceLock` was not in the
+# scanner's once-cell wrapper list.
+
+_PYONCELOCK_STATIC = """\
+use pyo3::prelude::*;
+use pyo3::sync::PyOnceLock;
+use pyo3::types::PyType;
+
+static NDARRAY_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+
+#[pymodule]
+fn m(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    Ok(())
+}
+"""
+
+_PYONCELOCK_FUNCTION_LOCAL = """\
+use pyo3::prelude::*;
+use pyo3::sync::PyOnceLock;
+use pyo3::types::PyType;
+
+fn pick<'py>(py: Python<'py>) {
+    static DECIMAL_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+    let _ = DECIMAL_TYPE.import(py, "decimal", "Decimal");
+}
+
+#[pymodule]
+fn m(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    Ok(())
+}
+"""
+
+
+class TestPyOnceLockStatic(unittest.TestCase):
+    def test_pyoncelock_module_level_static_flagged(self):
+        types = {f["type"] for f in findings_of(_PYONCELOCK_STATIC)}
+        self.assertIn("module_level_py_static", types)
+
+    def test_pyoncelock_function_local_static_flagged(self):
+        # Function-local statics with the PyOnceLock shape are equally
+        # process-global; the scanner must catch them too.
+        types = {f["type"] for f in findings_of(_PYONCELOCK_FUNCTION_LOCAL)}
+        self.assertIn("module_level_py_static", types)
+
+
 if __name__ == "__main__":
     unittest.main()

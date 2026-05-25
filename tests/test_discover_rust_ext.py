@@ -117,5 +117,143 @@ class TestNotPyO3(unittest.TestCase):
         self.assertFalse(r["is_pyo3_extension"])
 
 
+# v0.2 regression: cryptography's `src/rust/` scan returned `pyo3_version:
+# null` because the `Cargo.lock` lives one directory up at the workspace
+# root, and the v0.1 lookup only checked `root / "Cargo.lock"`.
+_WORKSPACE_ROOT_CARGO_TOML = """\
+[workspace]
+members = ["extension"]
+"""
+
+_WORKSPACE_MEMBER_CARGO_TOML = """\
+[package]
+name = "extension"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+"""
+
+_WORKSPACE_CARGO_LOCK = """\
+version = 3
+
+[[package]]
+name = "extension"
+version = "0.1.0"
+
+[[package]]
+name = "pyo3"
+version = "0.28.2"
+"""
+
+
+class TestWorkspaceCargoLock(unittest.TestCase):
+    def test_pyo3_version_resolved_from_workspace_lock(self):
+        with TempRustExtension(
+            {
+                "Cargo.toml": _WORKSPACE_ROOT_CARGO_TOML,
+                "Cargo.lock": _WORKSPACE_CARGO_LOCK,
+                "extension/Cargo.toml": _WORKSPACE_MEMBER_CARGO_TOML,
+                "extension/src/lib.rs": MINIMAL_PYO3_CRATE,
+            },
+            write_cargo_toml=False,
+        ) as ext:
+            member = ext.root / "extension"
+            r = dre.discover(str(member))
+        self.assertEqual(r["pyo3_version"], "0.28.2")
+        self.assertEqual(r["pyo3_version_source"], "workspace Cargo.lock")
+        # The note should record where the lock came from.
+        self.assertTrue(
+            any("workspace `Cargo.lock`" in n for n in r["notes"]),
+            f"expected workspace-lock note in: {r['notes']}",
+        )
+
+
+# v0.2 regression: polars puts the cdylib in workspace shim crates
+# (`py-polars/runtime/polars-runtime-{32,64,compat}/src/lib.rs` =
+# `pub use polars_python::c_api::*;`). v0.1 classified the actual extension
+# crate as `out_of_scope: true` because the cdylib was not in its own
+# Cargo.toml. v0.2: presence of `#[pymodule]` keeps the crate in scope.
+
+_SHIM_WORKSPACE_ROOT = """\
+[workspace]
+members = ["extension", "shim"]
+"""
+
+_SHIM_EXTENSION_CARGO = """\
+[package]
+name = "ext-lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = "0.28"
+"""
+
+_SHIM_SHIM_CARGO = """\
+[package]
+name = "ext-shim"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ext-lib = { path = "../extension" }
+"""
+
+_SHIM_SHIM_LIB_RS = """\
+pub use ext_lib::*;
+"""
+
+
+class TestShimCdylibLayout(unittest.TestCase):
+    def test_shim_workspace_in_scope(self):
+        # The extension crate has #[pymodule] but no cdylib; sibling shim
+        # exposes it. v0.2 keeps the extension crate in scope and labels
+        # the detection method `workspace_shim_cdylib`.
+        with TempRustExtension(
+            {
+                "Cargo.toml": _SHIM_WORKSPACE_ROOT,
+                "extension/Cargo.toml": _SHIM_EXTENSION_CARGO,
+                "extension/src/lib.rs": MINIMAL_PYO3_CRATE,
+                "shim/Cargo.toml": _SHIM_SHIM_CARGO,
+                "shim/src/lib.rs": _SHIM_SHIM_LIB_RS,
+            },
+            write_cargo_toml=False,
+        ) as ext:
+            r = dre.discover(str(ext.root / "extension"))
+        self.assertTrue(r["is_pyo3_extension"])
+        self.assertFalse(r["out_of_scope"])
+        self.assertEqual(r["detection_method"], "workspace_shim_cdylib")
+        self.assertTrue(
+            any("workspace sibling" in n for n in r["notes"]),
+            f"expected shim-sibling note in: {r['notes']}",
+        )
+
+    def test_pymodule_without_cdylib_or_shim_in_scope_with_caveat(self):
+        # `#[pymodule]` + pyo3 dep + no cdylib + no shim sibling: in scope,
+        # but flagged with a note (the cdylib might be in a non-workspace
+        # downstream consumer the toolkit can't see).
+        with TempRustExtension(
+            {"src/lib.rs": MINIMAL_PYO3_CRATE},
+            cargo_toml=_CARGO_NO_CDYLIB.replace("embedder", "lonely"),
+        ) as ext:
+            # Replace src/main.rs scaffolding with src/lib.rs + pymodule;
+            # _CARGO_NO_CDYLIB is reused but we override the source.
+            r = dre.discover(str(ext.root))
+        # Note: the existing `_CARGO_NO_CDYLIB` fixture omits the [lib]
+        # section; that's OK -- we still get the pyo3 dep + no cdylib +
+        # #[pymodule] combination this branch handles.
+        self.assertTrue(r["is_pyo3_extension"])
+        self.assertFalse(r["out_of_scope"])
+        self.assertEqual(r["detection_method"], "pymodule_no_cdylib")
+
+
 if __name__ == "__main__":
     unittest.main()
