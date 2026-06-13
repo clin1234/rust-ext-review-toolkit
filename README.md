@@ -39,14 +39,14 @@ What PyO3 does **not** prevent — and what this toolkit is *for*:
 ### Marketplace install
 
 ```bash
-claude plugin marketplace add devdanzin/rust-ext-review-toolkit
+claude plugin marketplace add clin1234/rust-ext-review-toolkit
 claude plugin install rust-ext-review-toolkit@rust-ext-review-toolkit
 ```
 
 ### Try it without installing
 
 ```bash
-git clone https://github.com/devdanzin/rust-ext-review-toolkit.git
+git clone https://github.com/clin1234/rust-ext-review-toolkit.git
 claude --plugin-dir rust-ext-review-toolkit/plugins/rust-ext-review-toolkit
 ```
 
