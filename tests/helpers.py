@@ -74,7 +74,7 @@ class TempRustExtension:
         write_cargo_toml: bool = True,
         pyproject_toml: str | None = None,
         setup_py: str | None = None,
-        pyo3_version: str = "0.28",
+        pyo3_version: str = "0.29",
         pyo3_features: list[str] | None = None,
     ) -> None:
         self.files = files
