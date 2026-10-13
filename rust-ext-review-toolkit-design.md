@@ -46,7 +46,7 @@ This list is the agent inventory for v0.1.
 
 - Rust extension authors (maturin/PyO3 library maintainers)
 - Contributors reviewing PyO3 crates in third-party projects
-- Teams migrating extensions across PyO3 major versions (0.20 → 0.21 → … → 0.29; current stable is 0.28)
+- Teams migrating extensions across PyO3 major versions (0.20 → 0.21 → … → 0.30; current stable is 0.29)
 - Developers preparing PyO3 extensions for free-threaded Python
 
 ### 1.4 Non-Goals
@@ -114,7 +114,7 @@ data/
 └── limited_api_headers.json    # Vendored from cext-review-toolkit (same purpose)
 ```
 
-`pyo3_api_tables.json` is the largest and most maintenance-intensive — PyO3 evolves rapidly and several major releases (0.21, 0.23, 0.25, 0.27, 0.28) reshaped the API. The format mirrors cext-review-toolkit's `deprecated_apis.json` but is keyed by PyO3 version rather than Python version.
+`pyo3_api_tables.json` is the largest and most maintenance-intensive — PyO3 evolves rapidly and several major releases (0.21, 0.23, 0.25, 0.27, 0.28, 0.29) reshaped the API. The format mirrors cext-review-toolkit's `deprecated_apis.json` but is keyed by PyO3 version rather than Python version.
 
 `stable_abi.json` and `limited_api_headers.json` are **vendored directly from cext-review-toolkit** — they describe CPython's limited API surface, which is exactly what raw `pyo3-ffi` calls inside `unsafe` blocks are subject to when the crate targets the `abi3` feature. The synchronization surface is just these data files.
 
@@ -873,7 +873,7 @@ Each scanner must have tests covering:
 - Detection of the primary bug pattern (true positive)
 - Clean code producing no findings (true negative)
 - At least one edge case (heavy attribute use, generics, macro-rich code)
-- For version-aware scanners: behavior across the inflection versions (0.21, 0.25, 0.28)
+- For version-aware scanners: behavior across the inflection versions (0.21, 0.25, 0.28, 0.29)
 
 ### 9.3 Real-world Validation
 
