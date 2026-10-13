@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "rust-ext-review-toolkit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Review toolkit for Python extensions written in Rust with PyO3. 13 specialized agents covering unsafe-block soundness, PyResult propagation, GIL discipline, panic safety, #[pyclass] trait bounds and protocol correctness, module init, lifetime handles, PyO3 version compatibility, complexity, and git history. Tree-sitter-rust-powered.",
   "owner": {
     "name": "Charlie Lin and Danzin",
@@ -12,7 +12,7 @@
       "name": "rust-ext-review-toolkit",
       "description": "13 specialized agents and 4 commands for analyzing PyO3 Rust extensions. Tree-sitter-rust scripts detect unsafe-block soundness violations, panics crossing the FFI boundary, swallowed PyResults, #[pyclass] Send/Sync gaps, missing __traverse__/__clear__, and PyO3 version-migration debt. Includes a 'migrate' command for the Bound-API and free-threading migration checklist.",
       "source": "./plugins/rust-ext-review-toolkit",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "code-quality",
       "keywords": [
         "pyo3",
