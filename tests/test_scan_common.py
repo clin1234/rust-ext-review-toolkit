@@ -133,7 +133,7 @@ class TestBuildReport(unittest.TestCase):
         "scan_root": "/crate",
         "crate_name": "demo",
         "module_name": "demo",
-        "pyo3_version": "0.28",
+        "pyo3_version": "0.29",
         "pyo3_features": ["extension-module"],
         "python_floor": None,
         "build_backend": "cargo",
@@ -152,7 +152,7 @@ class TestBuildReport(unittest.TestCase):
         self.assertEqual(report["functions_analyzed"], 7)
         self.assertEqual(report["findings"], findings)
         self.assertEqual(report["crate_info"]["crate_name"], "demo")
-        self.assertEqual(report["crate_info"]["pyo3_version"], "0.28")
+        self.assertEqual(report["crate_info"]["pyo3_version"], "0.29")
         self.assertTrue(report["crate_info"]["tree_sitter_available"])
 
     def test_summary_counts(self):
