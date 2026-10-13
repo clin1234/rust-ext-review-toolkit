@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["auto-initialize"] }
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
 """
 
 _CARGO_PLAIN = """\
@@ -53,7 +53,7 @@ class TestCargoCdylibDetection(unittest.TestCase):
         self.assertEqual(r["detection_method"], "cargo_toml_cdylib")
         self.assertEqual(r["crate_name"], "testcrate")
         self.assertEqual(r["module_name"], "minimal")
-        self.assertEqual(r["pyo3_version"], "0.28")
+        self.assertEqual(r["pyo3_version"], "0.29")
         self.assertEqual(r["crate_types"], ["cdylib"])
 
 
@@ -147,7 +147,7 @@ version = "0.1.0"
 
 [[package]]
 name = "pyo3"
-version = "0.28.2"
+version = "0.29.3"
 """
 
 
@@ -164,7 +164,7 @@ class TestWorkspaceCargoLock(unittest.TestCase):
         ) as ext:
             member = ext.root / "extension"
             r = dre.discover(str(member))
-        self.assertEqual(r["pyo3_version"], "0.28.2")
+        self.assertEqual(r["pyo3_version"], "0.29.3")
         self.assertEqual(r["pyo3_version_source"], "workspace Cargo.lock")
         # The note should record where the lock came from.
         self.assertTrue(
@@ -191,7 +191,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = "0.28"
+pyo3 = "0.29"
 """
 
 _SHIM_SHIM_CARGO = """\
