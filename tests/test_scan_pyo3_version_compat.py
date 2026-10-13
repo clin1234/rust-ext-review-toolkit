@@ -71,7 +71,7 @@ static CACHE: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 
 class TestRenamedApi(unittest.TestCase):
     def test_with_gil_on_modern_crate_is_renamed(self):
-        findings = findings_of(_WITH_GIL)  # default pyo3 version 0.28
+        findings = findings_of(_WITH_GIL)  # default pyo3 version 0.29
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["type"], "renamed_api")
         self.assertEqual(findings[0]["classification"], "CONSIDER")
