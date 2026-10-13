@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "_comment": "Headline PyO3 API shifts across 0.20-0.29, used by pyo3-version-compat-scanner and lifetime-handle-checker. Seed data: the most-cited migrations. Sourced from https://pyo3.rs/main/migration.html. Each entry's `detect` field tells the scanner how to match it: kind `call` (a call whose leaf name equals `name`), `call_suffix` (a call whose leaf name ends with `name`), `type` (a type identifier whose final segment equals `name`), or `skip` (matched by another agent named in `owner`). Version classification: a use is `removed_api` (FIX) at/after `removed`, `deprecated_api` (CONSIDER) at/after `deprecated`, else `renamed_api` (CONSIDER) at/after `renamed_in`.",
+  "_comment": "Headline PyO3 API shifts across 0.20-0.31, used by pyo3-version-compat-scanner and lifetime-handle-checker. Seed data: the most-cited migrations. Sourced from https://pyo3.rs/main/migration.html. Each entry's `detect` field tells the scanner how to match it: kind `call` (a call whose leaf name equals `name`), `call_suffix` (a call whose leaf name ends with `name`), `type` (a type identifier whose final segment equals `name`), or `skip` (matched by another agent named in `owner`). Coverage from 0.29 follows the main migration guide, which currently has no separate 0.30 section. `changed_in` records signature, behavior, or build changes for manual review only; it does not trigger scanner classification. `skip` may also designate manual review where syntax alone is insufficient. Version classification: a use is `removed_api` (FIX) at/after `removed`, `deprecated_api` (CONSIDER) at/after `deprecated`, else `renamed_api` (CONSIDER) at/after `renamed_in`.",
   "baseline_version": "0.28",
   "supported_floor": "0.21",
   "apis": {
@@ -133,6 +133,202 @@
       "detect": { "kind": "call", "name": "from_owned_ptr", "receiver": "Py" },
       "category": "unsafe_ffi",
       "note": "Py<T>::from_owned_ptr was deprecated in 0.28; Bound::from_owned_ptr is the replacement (same leaf method name; the receiver field disambiguates)."
+    },
+    "pyerr_from_utf8_error": {
+      "removed": "0.29",
+      "replacement": "PyUnicodeDecodeError::new_err_from_utf8(py, bytes, error)",
+      "rust_signature_pattern": "From<std::str::Utf8Error> for PyErr",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "conversion",
+      "note": "Only the implicit conversion was removed; Utf8Error itself remains valid. Review ? and .into() conversions to PyErr and retain the input bytes.",
+      "source": "https://pyo3.rs/main/migration.html#removed-implementations-of-fromstrutf8error-fromstringfromutf16error-and-fromchardecodeutf16error-for-pyerr"
+    },
+    "pyerr_from_utf16_error": {
+      "removed": "0.29",
+      "replacement": "PyUnicodeDecodeError::new_err(...)",
+      "rust_signature_pattern": "From<std::string::FromUtf16Error> for PyErr",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "conversion",
+      "note": "Construct the Python decoding exception explicitly with the required source and error details; the Rust error alone is insufficient. Do not flag unrelated uses of this error type.",
+      "source": "https://pyo3.rs/main/migration.html#removed-implementations-of-fromstrutf8error-fromstringfromutf16error-and-fromchardecodeutf16error-for-pyerr"
+    },
+    "pyerr_from_decode_utf16_error": {
+      "removed": "0.29",
+      "replacement": "PyUnicodeDecodeError::new_err(...)",
+      "rust_signature_pattern": "From<std::char::DecodeUtf16Error> for PyErr",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "conversion",
+      "note": "Construct the Python decoding exception explicitly with the required source and error details; the Rust error alone is insufficient. Do not flag unrelated uses of this error type.",
+      "source": "https://pyo3.rs/main/migration.html#removed-implementations-of-fromstrutf8error-fromstringfromutf16error-and-fromchardecodeutf16error-for-pyerr"
+    },
+    "pyerr_owned_unicode_error_conversions": {
+      "changed_in": "0.29",
+      "replacement": "Retain the conversions; update expectations for the Python exception class",
+      "rust_signature_pattern": "From<std::string::FromUtf8Error> / From<std::ffi::IntoStringError> for PyErr",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "conversion",
+      "note": "These two implementations were corrected, not removed. Review exception-class assertions and handlers.",
+      "source": "https://pyo3.rs/main/migration.html#removed-implementations-of-fromstrutf8error-fromstringfromutf16error-and-fromchardecodeutf16error-for-pyerr"
+    },
+    "pyo3_build_config_direct_dependency": {
+      "changed_in": "0.29",
+      "replacement": "Add a direct dependency on pyo3 or pyo3-ffi",
+      "rust_signature_pattern": "pyo3_build_config",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "build_config",
+      "note": "Configuration now comes from pyo3-ffi's build script. Review the calling crate's Cargo.toml, especially cross-compilation setups; build-config usage alone is not an error.",
+      "source": "https://pyo3.rs/main/migration.html#pyo3_build_config-apis-now-require-a-direct-dependency-on-pyo3-or-pyo3-ffi"
+    },
+    "pyclass_tuple_superclass_initializer": {
+      "deprecated": "0.29",
+      "replacement": "PyClassInitializer::from(base).add_subclass(sub)",
+      "rust_signature_pattern": "#[new] returning (Sub, Base) / From<(S, B)> for PyClassInitializer<S>",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "constructor",
+      "note": "Use an explicit initializer. Tuple conversion also requires review where no compiler warning is emitted. No removal release is specified.",
+      "source": "https://pyo3.rs/main/migration.html#deprecation-of-super-class-initialization-from-tuples"
+    },
+    "pycapsule_destructor_static": {
+      "changed_in": "0.29",
+      "replacement": "Use a destructor satisfying 'static",
+      "rust_signature_pattern": "PyCapsule::new_with_destructor",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "unsafe_ffi",
+      "note": "Review borrowed captures; the new lifetime bound prevents a destructor outliving its captured data. The constructor remains available.",
+      "source": "https://pyo3.rs/main/migration.html#minor-api-breaks-for-soundness-reasons"
+    },
+    "pycfunction_closure_sync": {
+      "changed_in": "0.29",
+      "replacement": "Use a closure satisfying Sync",
+      "rust_signature_pattern": "PyCFunction::new_closure",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "sync",
+      "note": "Review captured state for thread-safe shared access. The constructor remains available; do not treat every call as removed.",
+      "source": "https://pyo3.rs/main/migration.html#minor-api-breaks-for-soundness-reasons"
+    },
+    "pyclass_guard_map_mut": {
+      "changed_in": "0.29",
+      "replacement": "PyClassGuardMap for shared mappings; PyClassGuardMapMut for mutable mappings",
+      "rust_signature_pattern": "PyClassGuardMap",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "handle_kind",
+      "note": "Update mutable mapping annotations for the split guard types. Shared PyClassGuardMap uses remain valid.",
+      "source": "https://pyo3.rs/main/migration.html#minor-api-breaks-for-soundness-reasons"
+    },
+    "pyclass_guard_mut_as_super": {
+      "changed_in": "0.29",
+      "replacement": "Use the returned PyClassGuardMutSuper guard",
+      "rust_signature_pattern": "PyClassGuardMut::as_super",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "handle_kind",
+      "note": "The return type replaces &mut PyClassGuardMut<SuperType>; adjust annotations and callers relying on the old reference type.",
+      "source": "https://pyo3.rs/main/migration.html#minor-api-breaks-for-soundness-reasons"
+    },
+    "critical_section_mutex2_optional_guard": {
+      "changed_in": "0.29",
+      "replacement": "Handle Option<EnteredCriticalSection> in the callback's second argument",
+      "rust_signature_pattern": "with_critical_section_mutex2",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "sync",
+      "note": "The optional second guard handles both arguments naming the same mutex without creating aliased mutable references.",
+      "source": "https://pyo3.rs/main/migration.html#minor-api-breaks-for-soundness-reasons"
+    },
+    "windows_generate_import_lib_noop": {
+      "changed_in": "0.29",
+      "replacement": "Remove reliance on generate-import-lib; Windows builds use raw-dylib linking",
+      "rust_signature_pattern": "generate-import-lib",
+      "detect": {
+        "kind": "skip",
+        "owner": "manual review (requires type or build configuration context)"
+      },
+      "category": "build_config",
+      "note": "The feature remains accepted but has no effect. Import libraries are no longer needed for Windows targets.",
+      "source": "https://pyo3.rs/main/migration.html#pyo3-now-uses-raw-dylib-linking-on-windows"
+    },
+    "pybuffer_as_slice": {
+      "removed": "0.31",
+      "replacement": "PyBuffer::copy_to_slice; copy_from_slice after edits",
+      "rust_signature_pattern": "PyBuffer::as_slice",
+      "detect": {
+        "kind": "call",
+        "name": "as_slice",
+        "receiver": "PyBuffer"
+      },
+      "category": "buffer",
+      "note": "Copy through an owned Rust buffer. Alternatively use as_slice_ptr with independently justified aliasing guarantees before creating references. Detection covers qualified PyBuffer calls only; review buffer.as_slice(...) manually because the scanner cannot resolve receiver types. No deprecation version is inferred.",
+      "source": "https://pyo3.rs/main/migration.html#removed-methods-from-pybuffert-as_slice-as_mut_slice-as_fortran_slice-and-as_fortran_mut_slice"
+    },
+    "pybuffer_as_mut_slice": {
+      "removed": "0.31",
+      "replacement": "PyBuffer::copy_to_slice; copy_from_slice after edits",
+      "rust_signature_pattern": "PyBuffer::as_mut_slice",
+      "detect": {
+        "kind": "call",
+        "name": "as_mut_slice",
+        "receiver": "PyBuffer"
+      },
+      "category": "buffer",
+      "note": "Copy through an owned Rust buffer. Alternatively use as_slice_ptr with independently justified aliasing guarantees before creating references. Detection covers qualified PyBuffer calls only; review buffer.as_mut_slice(...) manually because the scanner cannot resolve receiver types. No deprecation version is inferred.",
+      "source": "https://pyo3.rs/main/migration.html#removed-methods-from-pybuffert-as_slice-as_mut_slice-as_fortran_slice-and-as_fortran_mut_slice"
+    },
+    "pybuffer_as_fortran_slice": {
+      "removed": "0.31",
+      "replacement": "PyBuffer::copy_to_fortran_slice; copy_from_fortran_slice after edits",
+      "rust_signature_pattern": "PyBuffer::as_fortran_slice",
+      "detect": {
+        "kind": "call",
+        "name": "as_fortran_slice",
+        "receiver": "PyBuffer"
+      },
+      "category": "buffer",
+      "note": "Copy through an owned Rust buffer. Alternatively use as_fortran_slice_ptr with independently justified aliasing guarantees before creating references. Detection covers qualified PyBuffer calls only; review buffer.as_fortran_slice(...) manually because the scanner cannot resolve receiver types. No deprecation version is inferred.",
+      "source": "https://pyo3.rs/main/migration.html#removed-methods-from-pybuffert-as_slice-as_mut_slice-as_fortran_slice-and-as_fortran_mut_slice"
+    },
+    "pybuffer_as_fortran_mut_slice": {
+      "removed": "0.31",
+      "replacement": "PyBuffer::copy_to_fortran_slice; copy_from_fortran_slice after edits",
+      "rust_signature_pattern": "PyBuffer::as_fortran_mut_slice",
+      "detect": {
+        "kind": "call",
+        "name": "as_fortran_mut_slice",
+        "receiver": "PyBuffer"
+      },
+      "category": "buffer",
+      "note": "Copy through an owned Rust buffer. Alternatively use as_fortran_slice_ptr with independently justified aliasing guarantees before creating references. Detection covers qualified PyBuffer calls only; review buffer.as_fortran_mut_slice(...) manually because the scanner cannot resolve receiver types. No deprecation version is inferred.",
+      "source": "https://pyo3.rs/main/migration.html#removed-methods-from-pybuffert-as_slice-as_mut_slice-as_fortran_slice-and-as_fortran_mut_slice"
     }
   }
 }
