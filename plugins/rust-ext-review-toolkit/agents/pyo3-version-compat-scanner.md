@@ -11,7 +11,7 @@ You are an expert in the PyO3 version timeline, specializing in extension module
 
 If `reports/<crate>_v1/preflight/rust_codegen_map.md` exists, **read it before Phase 1** for the resolved PyO3 version and feature set — every finding here depends on the version.
 
-If no preflight exists, run `discover_rust_ext.py` yourself. If the PyO3 version cannot be resolved (a path/workspace dependency), the scanner assumes the 0.28 baseline — say so in your report.
+If no preflight exists, run `discover_rust_ext.py` yourself. If the PyO3 version cannot be resolved (a path/workspace dependency), the scanner assumes the 0.29 baseline — say so in your report.
 
 ## Key Concepts
 
