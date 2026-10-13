@@ -14,7 +14,7 @@ Key point: PyO3's type system already eliminates most C-extension bug classes (m
 > **Status:** v0.1 — the 13 agents, 15 scripts, 4 commands, and data files are implemented, tested (`python -m unittest discover tests`), and validated against real PyO3 crates (see `docs/real-world-validation.md`).
 
 ## Design document
-`rust-ext-review-toolkit-design.md` is the authoritative spec — agents, scripts, schemas, classification — reconciled to current PyO3 (0.28 stable, 0.29 in development). If current PyO3 docs and the design doc disagree, trust the PyO3 docs and flag the discrepancy.
+`rust-ext-review-toolkit-design.md` is the authoritative spec — agents, scripts, schemas, classification — reconciled to current PyO3 (0.29 stable, 0.30 in development). If current PyO3 docs and the design doc disagree, trust the PyO3 docs and flag the discrepancy.
 
 The v0.1 build was guided by three build-time companion docs (a PyO3 domain primer, an implementation roadmap, and a tree-sitter-rust recipe reference); they served their purpose and were removed once the build was complete — they remain in git history. The live coding references are now `scripts/rust_ts_utils.py` (grammar facts in its docstrings), the per-agent prompt files (per-hazard rationale), and the Gotchas section below.
 
