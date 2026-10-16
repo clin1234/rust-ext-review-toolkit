@@ -34,6 +34,8 @@ Run a comprehensive review of a Python extension written in Rust with PyO3, usin
 | `history` | git-history-analyzer |
 | `all` | every agent (default) |
 
+**Optional tools:** `--run-clippy`, `--run-expand`, `--run-geiger`, `--run-miri --miri-test NAME`; configuration and artifact options are described in `<plugin_root>/external-tools.md`.
+
 **Options:** `deep` (full detail), `summary` (summary tier only), `parallel` (run agents within a group concurrently), `--max-parallel N` (cap, default 2), `--max-files N` (forward to scanners).
 
 ## Execution Workflow
@@ -52,7 +54,11 @@ If `is_pyo3_extension` is false, tell the user and stop. If `out_of_scope` is tr
 
 ### Phase 0.5 — External Tool Baseline (optional)
 
-Run `python <plugin_root>/scripts/run_external_tools.py [scope]`. This runs `cargo metadata` (safe — no compilation) to confirm the exact PyO3 version, and reports which external tools are available. Pass `--run-clippy` only if the user explicitly asks (clippy compiles the crate, executing build scripts). Store the output; Phase 2 agents cross-reference it.
+Read `<plugin_root>/external-tools.md`. Run the baseline once; forward explicit
+`--run-clippy`, `--run-expand`, `--run-geiger`, or `--run-miri` requests using that
+workflow (including output directory, package/features, and exact Miri test).
+`deep` alone does not enable them. Save the JSON report and pass its path to the
+mapper and every Phase 2 agent. Missing or failed tools never block the review.
 
 ### Phase 1 — Preflight Orientation
 

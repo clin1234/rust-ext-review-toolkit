@@ -13,6 +13,19 @@ If `reports/<crate>_v1/preflight/rust_codegen_map.md` exists, **read it before P
 
 If no preflight exists, proceed normally.
 
+
+## Optional external evidence
+
+Read `<plugin_root>/external-tools.md` and the supplied external-tools JSON/preflight
+handoff when present. Reuse the evidence; do not rerun tools per agent. Inspect only
+logs relevant to your findings, verify status and configuration, and cite original
+source locations. Missing/failed tools leave the source review intact; a completed
+run is not a soundness proof and raw counts never determine classifications.
+Use expansion excerpts to clarify generated PyO3 wrappers and Miri diagnostics
+only where a selected Rust test exercises the relevant path. Confirm that the test
+ran, distinguish unsupported operations from defects, and deduplicate corroborated
+scanner findings. Do not infer Python/GIL correctness from a pure-Rust test pass.
+
 ## Key Concepts
 
 - **Cyclic GC slots.** A `#[pyclass]` that owns a Python handle (`Py<T>`, `PyObject`, a `Bound` field) or enables `dict`/`weakref` can be part of a reference cycle. Rust's `Drop` cannot break a cycle that runs through Python — the class must implement `__traverse__` (visit every owned handle) and `__clear__` (drop them) so CPython's cyclic GC can collect it. Missing them is a real, silent leak.

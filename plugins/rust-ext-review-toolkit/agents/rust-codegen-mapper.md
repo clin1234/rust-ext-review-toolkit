@@ -20,12 +20,21 @@ Its value is **orientation**: it sets the crate's conventions once, so the eleve
    python <plugin_root>/scripts/discover_rust_ext.py <scope>
    ```
    Gives PyO3 version, features, build backend, module name, source files, free-threading signals.
-2. **`run_external_tools.py`** (optional) — run it for the `cargo metadata` confirmation of the exact resolved PyO3 version and feature set:
+2. **`run_external_tools.py`** (optional) — reuse the caller's JSON report; if absent, run it for the `cargo metadata` confirmation of the exact resolved PyO3 version and feature set:
    ```
    python <plugin_root>/scripts/run_external_tools.py <scope>
    ```
 3. **`data/pyo3_idioms.json`** — read it for the feature glossary, the normal PyO3 code idioms, and the generic ACCEPTABLE-noise list.
 4. **Read/Grep** the crate for project-specific structure.
+
+Read `<plugin_root>/external-tools.md` before consuming or requesting additional
+tools. When expansion completed, inspect relevant generated wrappers/slots and
+record their original macro locations and build configuration. Treat expanded text
+as lossy supporting evidence; do not run source scanners over it. Hand off the
+JSON/log paths, statuses, relevant excerpts, and limitations under Build profile.
+Route geiger and Miri evidence to the unsafe auditor (and relevant gil/lifetime/
+panic agents), without assigning classifications yourself. Never equate PATH
+availability with a successful run or rerun tools already supplied by the caller.
 
 ## What to Catalog
 
@@ -66,7 +75,7 @@ Write the orientation guide to `reports/<crate>_v1/preflight/rust_codegen_map.md
 
 1. **You do not find bugs.** You set expectations. A wrong orientation misleads eleven agents — be accurate, and say "unknown" rather than guess.
 2. **The ACCEPTABLE-idioms list is the point.** Without it, every downstream agent re-discovers and re-flags the crate's conventions. Invest your effort there.
-3. **PyO3 macros are invisible to Tree-sitter.** Note this once, here: `#[pyclass]`/`#[pymethods]`/`#[pyfunction]` expand to code no scanner sees, so all downstream analysis is *syntactic inference* over the attribute + struct + method shape.
+3. **PyO3 macros are invisible to Tree-sitter.** Note this once, here: `#[pyclass]`/`#[pymethods]`/`#[pyfunction]` expand to code no scanner sees, so source-scanner analysis is *syntactic inference* over the attribute + struct + method shape. Optional expansion evidence can supplement the agent's reasoning for the recorded configuration.
 4. **Reason at the resolved PyO3 version.** Several agents' verdicts (handle types, deprecated APIs, the `Send + Sync` requirement, the `gil_used` default) are version-dependent — get the version right.
 5. **Do not run the review agents.** You only orient; the explore command dispatches them after you.
 

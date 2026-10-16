@@ -21,7 +21,7 @@ The v0.1 build was guided by three build-time companion docs (a PyO3 domain prim
 ## Prerequisites
 - Python 3.10+
 - `tree-sitter` and `tree-sitter-rust`: `pip install tree-sitter tree-sitter-rust`
-- Optional, used opportunistically when present: `cargo clippy`, `cargo miri`, `cargo expand`, `cargo metadata` (from a Rust toolchain) — enable external-tool cross-referencing
+- Optional, used opportunistically when present: `cargo clippy`, `cargo miri`, `cargo expand`, `cargo geiger`, `cargo metadata` (from a Rust toolchain) — see `plugins/rust-ext-review-toolkit/external-tools.md` for opt-in execution and evidence handoff
 - No other dependencies — all scripts use only the standard library plus tree-sitter
 
 ## Dev commands

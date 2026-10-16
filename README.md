@@ -139,9 +139,12 @@ active features, Python floor, and free-threading intent.
 | **POLICY** | Maintainer's design call (adopt abi3? target free-threading? support subinterpreters?) |
 | **ACCEPTABLE** | Noted, no action — e.g. an `unsafe` block with a verified `// SAFETY:` comment |
 
-**External tools (optional).** When a Rust toolchain is present, `clippy` /
-`miri` / `cargo-expand` / `cargo metadata` are used opportunistically. Never
-required — Tree-sitter analysis is the baseline.
+**External tools (optional).** Source analysis never requires Rust tooling.
+The baseline runs cargo metadata and detects available tools. Explicit
+`--run-expand`, `--run-geiger`, and `--run-miri --miri-test NAME` requests save
+raw evidence for agents; `--run-clippy` retains lint integration. `deep` does not
+enable these tools. See [usage, evidence handoff, and practical limits](plugins/rust-ext-review-toolkit/external-tools.md),
+particularly why Python-calling tests are generally unsuitable for Miri.
 
 ## Limitations
 
@@ -149,7 +152,7 @@ required — Tree-sitter analysis is the baseline.
   trait-bound satisfaction, or do type inference. Scripts emit candidates
   (~20–40% false positives); agents confirm or dismiss each.
 - **Macro-generated code is invisible.** What `#[pyclass]` emits is inferred
-  from the source-level shape, not seen directly.
+  from the source-level shape; optional cargo-expand output can supplement agent reasoning.
 - **PyO3 evolves fast.** API knowledge lives in version-keyed data files; the
   analysis logic stays stable across PyO3 releases.
 

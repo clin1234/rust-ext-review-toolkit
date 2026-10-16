@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run external Rust tooling (cargo metadata, clippy) on a PyO3 crate.
+"""Run optional external Rust tooling on a PyO3 crate.
 
 This is the opportunistic external-tool baseline (design SS2.3). It is
 deliberately conservative about executing code:
@@ -10,20 +10,26 @@ deliberately conservative about executing code:
   - `cargo clippy` runs **only** with `--run-clippy`. Clippy compiles the
     crate, which executes `build.rs` and procedural macros -- arbitrary code.
     A review tool should not do that to possibly-untrusted code unprompted.
-  - miri / cargo-geiger / cargo-expand are detected and reported but not run
-    (nightly-only, slow, or deep-mode tools); the agent is told the command.
+  - cargo-expand / cargo-geiger / miri require individual opt-in flags.
+    Miri additionally requires an exact, pure-Rust library test name.
+    Raw output is saved as evidence, never converted into findings.
 
 All output is JSON. Every tool is optional; unavailable ones are listed in
 `skipped_tools` with a reason.
 
 Usage:
     python run_external_tools.py [path] [--run-clippy] [--max-files N]
+    python run_external_tools.py [path] --run-expand --run-geiger --output-dir logs
+    python run_external_tools.py [path] --run-miri --miri-test tests::pure --output-dir logs
 """
 
+import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -134,9 +140,64 @@ def _run_clippy(root: Path, project_root: Path) -> tuple[list[dict], str | None]
     return findings, None
 
 
-def analyze(target: str, *, max_files: int = 0, run_clippy: bool = False) -> dict:
-    """Run the external-tool baseline. ``max_files`` is accepted but unused
-    (cargo tooling operates on the whole crate)."""
+def _run_evidence_tool(
+    root: Path, command: list[str], output_dir: Path, tool: str
+) -> dict:
+    """Save full output without loading expansions into memory or parsing verdicts."""
+    record: dict = {"command": command, "cwd": str(root), "status": "error"}
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        artifact_dir = Path(tempfile.mkdtemp(prefix=f"{tool}-", dir=output_dir))
+        stdout_path = artifact_dir / "stdout.txt"
+        stderr_path = artifact_dir / "stderr.txt"
+        record.update(stdout_path=str(stdout_path), stderr_path=str(stderr_path))
+        with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+            result = subprocess.run(
+                command,
+                check=False,
+                cwd=str(root),
+                stdout=stdout,
+                stderr=stderr,
+                stdin=subprocess.DEVNULL,
+                timeout=_CLIPPY_TIMEOUT,
+                env={
+                    **os.environ,
+                    "CARGO_TERM_COLOR": "never",
+                    "RUSTUP_AUTO_INSTALL": "0",
+                },
+            )
+        record.update(
+            status="completed" if result.returncode == 0 else "failed",
+            returncode=result.returncode,
+        )
+    except subprocess.TimeoutExpired:
+        record.update(
+            status="timeout", reason="tool exceeded 600 seconds; output may be partial"
+        )
+    except OSError as e:
+        record["reason"] = str(e)
+    return record
+
+
+def analyze(
+    target: str,
+    *,
+    max_files: int = 0,
+    run_clippy: bool = False,
+    run_expand: bool = False,
+    run_geiger: bool = False,
+    run_miri: bool = False,
+    miri_test: str | None = None,
+    output_dir: str | None = None,
+    package: str | None = None,
+    features: str | None = None,
+    no_default_features: bool = False,
+) -> dict:
+    """Run opted-in tools; ``max_files`` does not limit Cargo's crate-wide work.
+
+    Package/features select the three evidence tools, not metadata or clippy.
+    Miri uses the active toolchain (select an installed nightly externally).
+    """
     target_path = Path(target).resolve()
     project_root = find_project_root(target_path)
     scan_root = target_path if target_path.is_dir() else target_path.parent
@@ -178,22 +239,69 @@ def analyze(target: str, *, max_files: int = 0, run_clippy: bool = False) -> dic
         else:
             findings.extend(clippy_findings)
 
-    # Detection-only tools: report availability and the manual command.
-    for tool, available, command in (
-        ("miri", tools_available["miri"], "cargo +nightly miri test"),
-        ("cargo-geiger", tools_available["cargo_geiger"], "cargo geiger"),
-        ("cargo-expand", tools_available["cargo_expand"], "cargo expand"),
+    tool_runs: dict[str, dict] = {}
+    selection: list[str] = []
+    if package:
+        selection.extend(["--package", package])
+    if features:
+        selection.extend(["--features", features])
+    if no_default_features:
+        selection.append("--no-default-features")
+    for tool, requested, available, command in (
+        (
+            "cargo-expand",
+            run_expand,
+            tools_available["cargo_expand"],
+            ["cargo", "expand", "--lib", "--color", "never", *selection],
+        ),
+        (
+            "cargo-geiger",
+            run_geiger,
+            tools_available["cargo_geiger"],
+            ["cargo", "geiger", *selection],
+        ),
+        (
+            "miri",
+            run_miri,
+            tools_available["miri"],
+            [
+                "cargo",
+                "miri",
+                "test",
+                "--lib",
+                *selection,
+                "--",
+                "--exact",
+                miri_test or "",
+            ],
+        ),
     ):
-        skipped.append(
-            {
-                "tool": tool,
-                "reason": (
-                    f"detection only -- run manually: `{command}`"
-                    if available
-                    else "not installed"
-                ),
-            }
+        reason = None
+        if not requested:
+            reason = "not requested; optional tool requires explicit opt-in"
+        elif not tools_available["cargo"] or not available:
+            reason = "cargo or tool executable is not installed"
+        elif tool == "miri" and not (miri_test and miri_test.strip()):
+            reason = "requires --miri-test with an exact pure-Rust library test name"
+        elif not output_dir:
+            reason = "requires --output-dir for evidence artifacts"
+        if reason:
+            skipped.append({"tool": tool, "reason": reason})
+            continue
+        assert output_dir is not None  # Required above for every requested tool.
+        record = _run_evidence_tool(
+            project_root, command, Path(output_dir).resolve(), tool
         )
+        tool_runs[tool] = record
+        if record["status"] != "completed":
+            skipped.append(
+                {
+                    "tool": tool,
+                    "reason": record.get(
+                        "reason", "non-zero exit; inspect evidence logs"
+                    ),
+                }
+            )
 
     by_lint: dict[str, int] = defaultdict(int)
     by_severity: dict[str, int] = defaultdict(int)
@@ -206,6 +314,7 @@ def analyze(target: str, *, max_files: int = 0, run_clippy: bool = False) -> dic
         "scan_root": str(scan_root),
         "tools_available": tools_available,
         "cargo_metadata": cargo_metadata,
+        "tool_runs": tool_runs,
         "findings": findings,
         "summary": {
             "total_findings": len(findings),
@@ -218,27 +327,19 @@ def analyze(target: str, *, max_files: int = 0, run_clippy: bool = False) -> dic
 
 def main() -> None:
     try:
-        argv = sys.argv[1:]
-        target = "."
-        max_files = 0
-        run_clippy = False
-        i = 0
-        while i < len(argv):
-            if argv[i] == "--max-files" and i + 1 < len(argv):
-                try:
-                    max_files = int(argv[i + 1])
-                except ValueError:
-                    pass
-                i += 2
-            elif argv[i] == "--run-clippy":
-                run_clippy = True
-                i += 1
-            elif not argv[i].startswith("-"):
-                target = argv[i]
-                i += 1
-            else:
-                i += 1
-        result = analyze(target, max_files=max_files, run_clippy=run_clippy)
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("target", nargs="?", default=".")
+        parser.add_argument("--max-files", type=int, default=0)
+        for tool in ("clippy", "expand", "geiger", "miri"):
+            parser.add_argument(f"--run-{tool}", action="store_true")
+        parser.add_argument("--miri-test", help="Exact pure-Rust library test name")
+        parser.add_argument(
+            "--output-dir", help="Directory for unique raw evidence logs"
+        )
+        parser.add_argument("--package", help="Package for expand/geiger/miri")
+        parser.add_argument("--features", help="Features for expand/geiger/miri")
+        parser.add_argument("--no-default-features", action="store_true")
+        result = analyze(**vars(parser.parse_args()))
         json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
     except Exception as e:  # noqa: BLE001 -- top-level guard, emit JSON error
