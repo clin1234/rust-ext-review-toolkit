@@ -42,14 +42,14 @@ python <plugin_root>/scripts/scan_pyo3_version_compat.py <target_directory>
 | `removed_api` | HIGH | An API gone at the crate's PyO3 version |
 | `deprecated_api` | MEDIUM | A deprecated-but-working API |
 | `renamed_api` | MEDIUM | The legacy name of a renamed API |
-| `abi3_free_threading_conflict` | MEDIUM | `abi3` enabled on a free-threading-targeted crate |
+| `abi3_free_threading_conflict` | MEDIUM | `abi3` enabled on a crate targeting free-threading older than 3.15|
 
 ### Phase 2: Deep Review of Each Candidate
 
 1. **`removed_api`** — confirm the crate's PyO3 version really has removed the API (re-check the resolved version). If so, the crate cannot build: FIX. The fix is the `replacement` in the finding's `details`.
 2. **`deprecated_api`** — the API works but warns. CONSIDER — schedule the migration. Confirm the flagged call really is the PyO3 API and not a same-named method (`to_object`, `downcast` can be custom method names — check the receiver).
 3. **`renamed_api`** — the legacy name still compiles as a deprecated alias. CONSIDER — mechanical rename to the current name. For `with_gil`/`allow_threads`, coordinate with gil-discipline-checker (it audits the GIL semantics; you audit the name).
-4. **`abi3_free_threading_conflict`** — confirm both signals: the `abi3` feature is in `pyo3_features` and the crate genuinely targets free-threading. If so, the abi3 wheel claim is misleading. CONSIDER — build a separate non-abi3 wheel for free-threaded interpreters.
+4. **`abi3_free_threading_conflict`** — confirm both signals: the `abi3` feature is in `pyo3_features` and the crate genuinely targets free-threading. If so, the abi3 wheel claim is misleading on 3.14 and older. CONSIDER — build a separate non-abi3 wheel for free-threaded interpreters, or target `abi3t` on 3.15 and newer.
 
 ### Phase 3: Pattern Review Beyond the Script
 
