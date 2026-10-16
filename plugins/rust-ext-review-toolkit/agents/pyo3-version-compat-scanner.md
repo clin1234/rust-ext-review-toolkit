@@ -23,7 +23,7 @@ PyO3 evolves on a roughly quarterly cadence; the migration guide (<https://pyo3.
 
 It also flags one feature-set conflict:
 
-- **`abi3_free_threading_conflict`** — `abi3` is enabled and the crate targets free-threaded Python. PyO3 **silently ignores `abi3`** under a free-threaded build (the stable ABI has no free-threaded variant), so the wheel is not actually abi3.
+- **`abi3_free_threading_conflict`** — traditional `abi3` is requested without `abi3t` and the crate targets free-threaded Python. `abi3` alone does not cover free-threaded builds, even on Python 3.15+. Python 3.15 introduces `abi3t` (PEP 803), supported by PyO3 0.29+ on both GIL-enabled and free-threaded interpreters. `abi3t` and `abi3t-py315` are distinct from traditional `abi3` features.
 
 Legacy GIL-reference handles (`&PyAny`, `Py::as_ref`) are lifetime-handle-checker's; private `_Py*` calls under abi3 are unsafe-block-auditor's.
 
@@ -42,14 +42,27 @@ python <plugin_root>/scripts/scan_pyo3_version_compat.py <target_directory>
 | `removed_api` | HIGH | An API gone at the crate's PyO3 version |
 | `deprecated_api` | MEDIUM | A deprecated-but-working API |
 | `renamed_api` | MEDIUM | The legacy name of a renamed API |
-| `abi3_free_threading_conflict` | MEDIUM | `abi3` enabled on a crate targeting free-threading older than 3.15|
+| `abi3_free_threading_conflict` | MEDIUM | Traditional `abi3` without `abi3t` on a crate targeting free-threading |
 
 ### Phase 2: Deep Review of Each Candidate
 
 1. **`removed_api`** — confirm the crate's PyO3 version really has removed the API (re-check the resolved version). If so, the crate cannot build: FIX. The fix is the `replacement` in the finding's `details`.
 2. **`deprecated_api`** — the API works but warns. CONSIDER — schedule the migration. Confirm the flagged call really is the PyO3 API and not a same-named method (`to_object`, `downcast` can be custom method names — check the receiver).
 3. **`renamed_api`** — the legacy name still compiles as a deprecated alias. CONSIDER — mechanical rename to the current name. For `with_gil`/`allow_threads`, coordinate with gil-discipline-checker (it audits the GIL semantics; you audit the name).
-4. **`abi3_free_threading_conflict`** — confirm both signals: the `abi3` feature is in `pyo3_features` and the crate genuinely targets free-threading. If so, the abi3 wheel claim is misleading on 3.14 and older. CONSIDER — build a separate non-abi3 wheel for free-threaded interpreters, or target `abi3t` on 3.15 and newer.
+4. **`abi3_free_threading_conflict`** — confirm traditional `abi3` features, the absence of `abi3t` features, and free-threading intent. CONSIDER — use version-specific wheels for Python 3.13t/3.14t, or consider `abi3t` on Python 3.15+ with PyO3 0.29+ and compatible packaging tools. A Python version bump alone does not turn `abi3` into `abi3t`.
+
+When `abi3t` is requested, review the resolved PyO3 version, build interpreter,
+packaging support, and actual wheel tags. The scanner suppresses the old conflict
+for dual-ABI configurations; it does not prove the resulting wheel targets
+`abi3t`. Bare `abi3t` falls back to a version-specific build before Python 3.15;
+with both features, older GIL-enabled builds can still use `abi3`. Keep
+version-specific wheels for older free-threaded interpreters. Discovery's
+`abi3t_python_floor` records only an explicit `abi3t-py3N` floor; `python_floor`
+retains the traditional `abi3` floor when both are present. Free-threading intent
+is not a successful thread-safety audit.
+
+References: [Python 3.15 ABI documentation](https://docs.python.org/3.15/c-api/stable.html)
+and [PyO3 0.29.3 distribution guide](https://pyo3.rs/v0.29.3/building-and-distribution).
 
 ### Phase 3: Pattern Review Beyond the Script
 

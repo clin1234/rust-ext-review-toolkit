@@ -192,6 +192,7 @@ def build_report(
         "pyo3_version": discovery.get("pyo3_version"),
         "pyo3_features": discovery.get("pyo3_features", []),
         "python_floor": discovery.get("python_floor"),
+        "abi3t_python_floor": discovery.get("abi3t_python_floor"),
         "build_backend": discovery.get("build_backend", "unknown"),
         "free_threading_target": discovery.get("free_threading_target", False),
         "source_files": discovery.get("source_files", []),

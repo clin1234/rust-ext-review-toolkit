@@ -104,6 +104,48 @@ class TestDeprecatedApi(unittest.TestCase):
 
 
 class TestAbi3FreeThreading(unittest.TestCase):
+    def test_abi3t_and_dual_abi_requests_are_not_conflicts(self):
+        for features in (
+            ["abi3t"],
+            ["abi3t-py315"],
+            ["abi3", "abi3t"],
+            ["abi3-py310", "abi3t-py315"],
+        ):
+            for ci_version in ("3.13t", "3.15t"):
+                with self.subTest(features=features, ci_version=ci_version):
+                    with TempRustExtension(
+                        {
+                            "src/lib.rs": MINIMAL_PYO3_CRATE,
+                            ".github/workflows/ci.yml": _FT_CI.replace(
+                                "3.13t", ci_version
+                            ),
+                        },
+                        pyo3_features=features,
+                    ) as ext:
+                        findings = sub.analyze(str(ext.root))["findings"]
+                    self.assertNotIn(
+                        "abi3_free_threading_conflict",
+                        {f["type"] for f in findings},
+                    )
+
+    def test_traditional_abi3_still_conflicts_on_python_315t(self):
+        with TempRustExtension(
+            {
+                "src/lib.rs": MINIMAL_PYO3_CRATE,
+                ".github/workflows/ci.yml": _FT_CI.replace("3.13t", "3.15t"),
+            },
+            pyo3_features=["abi3"],
+        ) as ext:
+            findings = sub.analyze(str(ext.root))["findings"]
+        conflict = [f for f in findings if f["type"] == "abi3_free_threading_conflict"]
+        self.assertEqual(len(conflict), 1)
+        self.assertEqual(conflict[0]["classification"], "CONSIDER")
+        self.assertIn("abi3t", conflict[0]["description"])
+
+    def test_report_preserves_abi3t_floor(self):
+        report = run(MINIMAL_PYO3_CRATE, pyo3_features=["abi3t-py315"])
+        self.assertEqual(report["crate_info"]["abi3t_python_floor"], "3.15")
+
     def test_abi3_plus_free_threading_is_flagged(self):
         with TempRustExtension(
             {"src/lib.rs": MINIMAL_PYO3_CRATE, ".github/workflows/ci.yml": _FT_CI},

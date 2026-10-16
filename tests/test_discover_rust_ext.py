@@ -58,6 +58,50 @@ class TestCargoCdylibDetection(unittest.TestCase):
 
 
 class TestPythonFloor(unittest.TestCase):
+    def test_abi3t_feature_sets_floor_and_intent(self):
+        with TempRustExtension(
+            {"src/lib.rs": MINIMAL_PYO3_CRATE},
+            pyo3_features=["abi3t-py315"],
+        ) as ext:
+            r = dre.discover(str(ext.root))
+        self.assertEqual(r["python_floor"], "3.15")
+        self.assertEqual(r["abi3t_python_floor"], "3.15")
+        self.assertTrue(r["free_threading_target"])
+        self.assertIn("abi3t", " ".join(r["free_threading_signals"]))
+
+    def test_dual_abi_floors_remain_distinct(self):
+        for features in (
+            ["abi3-py310", "abi3t-py315"],
+            ["abi3t-py315", "abi3-py310"],
+        ):
+            with (
+                self.subTest(features=features),
+                TempRustExtension(
+                    {"src/lib.rs": MINIMAL_PYO3_CRATE}, pyo3_features=features
+                ) as ext,
+            ):
+                r = dre.discover(str(ext.root))
+                self.assertEqual(r["python_floor"], "3.10")
+                self.assertEqual(r["abi3t_python_floor"], "3.15")
+
+    def test_lowest_floor_wins_within_each_abi(self):
+        with TempRustExtension(
+            {"src/lib.rs": MINIMAL_PYO3_CRATE},
+            pyo3_features=["abi3-py314", "abi3-py39", "abi3t-py315"],
+        ) as ext:
+            r = dre.discover(str(ext.root))
+        self.assertEqual(r["python_floor"], "3.9")
+        self.assertEqual(r["abi3t_python_floor"], "3.15")
+
+    def test_bare_abi3t_does_not_invent_a_build_floor(self):
+        with TempRustExtension(
+            {"src/lib.rs": MINIMAL_PYO3_CRATE}, pyo3_features=["abi3t"]
+        ) as ext:
+            r = dre.discover(str(ext.root))
+        self.assertIsNone(r["python_floor"])
+        self.assertIsNone(r["abi3t_python_floor"])
+        self.assertTrue(r["free_threading_target"])
+
     def test_abi3_feature_sets_floor(self):
         with TempRustExtension(
             {"src/lib.rs": MINIMAL_PYO3_CRATE},

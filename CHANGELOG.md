@@ -5,6 +5,18 @@ All notable changes to rust-ext-review-toolkit are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Distinguish Python 3.15's `abi3t` requests from traditional `abi3` in
+  free-threading compatibility checks; preserve warnings for `abi3`-only targets.
+- Discover explicit `abi3t` floors and free-threading intent, retain separate
+  floors for dual-ABI builds, and select the lowest floor within each ABI flavor.
+
+### Documentation
+- Explain PyO3 0.29+ `abi3t` migration, pre-3.15 fallbacks, and verification of
+  build configuration and wheel tags without equating ABI support with thread safety.
+
 ## [0.2.0] - 2026-10-17
 
 ### Fixed

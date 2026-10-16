@@ -14,8 +14,8 @@ crate's resolved PyO3 version (design SS3.2.9):
 It also flags one feature-level conflict:
 
   - `abi3_free_threading_conflict` (CONSIDER) -- `abi3` is enabled on a
-    free-threading-targeted crate; PyO3 silently ignores `abi3` under a
-    free-threaded build.
+    free-threading-targeted crate without an `abi3t` feature. Traditional
+    `abi3` does not cover free-threaded builds, including Python 3.15+.
 
 Legacy handle types (`&PyAny`, `Py::as_ref`) are owned by
 lifetime-handle-checker and marked `skip` in the data file. Private `_Py*`
@@ -218,9 +218,15 @@ def _scan_file(
 
 
 def _abi3_free_threading(discovery: dict) -> list[dict]:
-    """One crate-level finding: `abi3` enabled on a free-threading crate."""
+    """Flag traditional abi3-only requests on a free-threading crate."""
     features = discovery.get("pyo3_features") or []
-    if not any(str(f).startswith("abi3") for f in features):
+    if not any(f == "abi3" or str(f).startswith("abi3-py3") for f in features):
+        return []
+    # PyO3 supports opting into both ABIs for different build interpreters.
+    # This is a feature-intent check, not a claim about the resulting wheel:
+    # abi3t requires Python 3.15+, and older free-threaded builds still need
+    # version-specific wheels.
+    if any(f == "abi3t" or str(f).startswith("abi3t-py3") for f in features):
         return []
     if not discovery.get("free_threading_target"):
         return []
@@ -230,17 +236,19 @@ def _abi3_free_threading(discovery: dict) -> list[dict]:
             classification="CONSIDER",
             confidence="HIGH",
             description=(
-                "The `abi3` feature is enabled and the crate targets "
-                "free-threaded Python. PyO3 silently ignores `abi3` under a "
-                "free-threaded build -- the stable ABI has no free-threaded "
-                "variant, so the produced wheel is not actually abi3."
+                "Traditional `abi3` is requested without `abi3t`, and the "
+                "crate targets free-threaded Python. `abi3` alone does not "
+                "provide a stable ABI for free-threaded builds, even on "
+                "Python 3.15+. Python 3.15 introduces the separate `abi3t` ABI."
             ),
             file="Cargo.toml",
             line=0,
             category="version_compat",
             fix_template=(
-                "Build a separate non-abi3 wheel for free-threaded "
-                "interpreters, or drop the free-threading target."
+                "For Python 3.15+, consider PyO3 0.29+ with `abi3t` or "
+                "`abi3t-py315` and compatible packaging tools. Keep "
+                "version-specific wheels for free-threaded Python 3.13/3.14, "
+                "and verify the actual build configuration and wheel tags."
             ),
             details={"features": list(features)},
         )
