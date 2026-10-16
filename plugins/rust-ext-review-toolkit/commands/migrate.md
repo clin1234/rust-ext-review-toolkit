@@ -50,11 +50,11 @@ Produce an actionable, phased migration checklist for a Rust/PyO3 extension. **T
 - [ ] N removed APIs that will not compile  (version-compat `removed_api`)
 - [ ] Review the `Send + Sync` requirement: N `#[pyclass]` types with non-Send/Sync fields  (pyclass-traits `non_send_field`)
 
-### Phase 4: Free-threading readiness (optional, for 3.13t / 3.14t)
+### Phase 4: Free-threading readiness (optional, for 3.13t / 3.14t, 3.15t)
 - [ ] N `#[pyclass]` types with mutable shared state lack `frozen`  (pyclass-traits `missing_frozen_ft`)
 - [ ] Add `frozen` + interior locking / atomics to the candidates above
 - [ ] Declare the module's stance: `#[pymodule(gil_used = true)]` until the crate is free-threading-audited, or rely on the 0.28+ `gil_used = false` default once it is
-- [ ] Build and test against a free-threaded interpreter (`python3.13t` / `3.14t`)
+- [ ] Build and test against a free-threaded interpreter (`python3.13t` / `python3.14t`, `python3.15t`)
 - [ ] For a full GIL-discipline audit, run `/explore <scope> gil`
 
 ### Phase 5: abi3 floor (optional)
