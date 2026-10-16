@@ -120,18 +120,20 @@ data/
 
 ### 2.3 External Tool Integration (Optional)
 
-| Tool | Detection | What It Adds | Fallback |
-|------|-----------|--------------|----------|
-| clippy | `cargo clippy --message-format=json` from project root | Idiom lints, common Rust mistakes | Tree-sitter only |
-| miri | `cargo +nightly miri --version` | UB detection in `unsafe` code (when tests exist) | Tree-sitter only |
-| cargo-geiger | `cargo geiger --version` | Counts of `unsafe` usage per dep | Tree-sitter only |
-| cargo-expand | `cargo expand --version` | Expanded macro output for deep `#[pyclass]` analysis | Source-level analysis |
-| cargo metadata | `cargo metadata --format-version=1` | Resolved PyO3 version, feature flags, target Python floor | Parse `Cargo.toml` heuristically |
+The runner detects executables on PATH (a hint, not proof that rustup components
+work) and runs cargo metadata by default. Clippy remains opt-in. Expansion,
+geiger, and selected Miri library tests now have separate opt-in flags and save
+raw logs under unique artifact directories. `tool_runs` records command, cwd,
+status, exit code where available, and log paths; these are separate from parsed
+clippy `findings`. Missing/failed tools never block source analysis.
 
-Agent prompts note whether external tool results are available:
-- "clippy results available — cross-reference for additional Rust idiom findings"
-- "cargo metadata available — PyO3 version confirmed as 0.22.5"
-- "No external tools available — analysis based on Tree-sitter and Cargo.toml parsing"
+The command owns execution; preflight and agents reuse the JSON report. Expansion
+supports codegen orientation, geiger prioritizes the unsafe audit, and suitable
+Miri tests can corroborate defects. None automatically changes classifications or
+scores. The [external-tool workflow](plugins/rust-ext-review-toolkit/external-tools.md)
+defines selection, artifact handoff, and limitations (especially CPython FFI in
+Miri and lossy macro expansion). Cargo metadata resolves versions/features, not
+a definitive target Python floor.
 
 ### 2.4 Project Discovery
 

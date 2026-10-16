@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Opt-in cargo-expand, cargo-geiger, and selected Miri library test execution with
+  raw evidence artifacts, explicit execution status, and non-blocking failures.
+- Shared optional-tool workflow and command/agent evidence handoff, including
+  Miri's CPython FFI limits and safeguards against treating counts as bugs.
+
 ### Fixed
 - Distinguish Python 3.15's `abi3t` requests from traditional `abi3` in
   free-threading compatibility checks; preserve warnings for `abi3`-only targets.

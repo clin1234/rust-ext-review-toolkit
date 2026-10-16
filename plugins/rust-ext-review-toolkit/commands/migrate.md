@@ -8,9 +8,18 @@ allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 
 Produce an actionable, phased migration checklist for a Rust/PyO3 extension. **This is the highest-value command for Rust extensions** — PyO3 has reshuffled its API repeatedly (0.21 `Bound`, 0.23 `IntoPyObject`, 0.25 `attach`/`detach` rename, 0.27 conversion rework, 0.28 free-threading default) and the free-threading rollout is ongoing.
 
-**Arguments:** "$ARGUMENTS"  (scope only — path or glob; default `.`)
+**Arguments:** "$ARGUMENTS"  (scope: path or glob; default `.`; optional external-tool flags below)
 
 **Plugin root:** `<plugin_root>` is the `plugins/rust-ext-review-toolkit/` directory.
+
+## Optional external tools
+
+Follow `<plugin_root>/external-tools.md` for explicitly requested `--run-clippy`,
+`--run-expand`, `--run-geiger`, or `--run-miri --miri-test NAME` and their
+configuration/output options. Run once before preflight and pass the saved JSON
+path to the mapper and dispatched agents. Reuse existing evidence when supplied.
+Default to the source workflow; missing or failed tools do not block it and tool
+counts/availability alone do not affect scores or classifications.
 
 ## Workflow
 

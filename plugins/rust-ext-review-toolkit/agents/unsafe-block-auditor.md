@@ -19,6 +19,20 @@ If `reports/<crate>_v1/preflight/rust_codegen_map.md` exists, **read it before P
 
 If no preflight exists, run `discover_rust_ext.py` yourself to get the PyO3 version and feature set, then proceed.
 
+
+## Optional external evidence
+
+Read `<plugin_root>/external-tools.md` and the supplied external-tools JSON/preflight
+handoff when present. Reuse the evidence; do not rerun tools per agent. Inspect only
+logs relevant to your findings, verify status and configuration, and cite original
+source locations. Missing/failed tools leave the source review intact; a completed
+run is not a soundness proof and raw counts never determine classifications.
+Use cargo-geiger to prioritize local unsafe code, keeping dependency totals separate.
+Use a selected Miri test's actual UB diagnostic to corroborate a source-level
+soundness violation; unsupported CPython FFI, build failures, zero matched tests,
+and ignored tests are coverage limits, not bugs or evidence of safety. Inspect
+macro expansion only to understand generated context, not to scan it as user code.
+
 ## Key Concepts
 
 - **Every `unsafe` block defaults to CONSIDER.** The block is a soundness obligation; your job is to either escalate it to FIX (a specific bug identified) or downgrade it to ACCEPTABLE (a verified-safe pattern with a correct `// SAFETY:` justification).
