@@ -149,10 +149,10 @@ The discovery script produces:
 - Crate name (from `[package] name` or `[lib] name`)
 - Module name (from `#[pymodule] fn xxx` — must match the cdylib name after `lib` stripping)
 - PyO3 version (exact if `Cargo.lock` exists, otherwise the version spec from `Cargo.toml`)
-- Active PyO3 features (`extension-module`, `abi3`, `abi3-py39`/`abi3-py310`/etc., `multiple-pymethods`, `experimental-async`, `chrono`, `num-complex`, ...). Note: there is **no `gil-disabled` feature** — free-threading is not feature-gated in PyO3.
-- Python version floor (from `abi3-pyNM` feature or maturin config)
+- Active PyO3 features (`extension-module`, `abi3`, `abi3-py39`/`abi3-py310`/etc., `abi3t`, `abi3t-py315`, `multiple-pymethods`, `experimental-async`, `chrono`, `num-complex`, ...). There is no `gil-disabled` Cargo feature; `abi3t` selects a stable ABI, not whether the interpreter has a GIL.
+- Declared Python version floors: `python_floor` retains the lowest traditional `abi3-pyNM` floor, falling back to the `abi3t-pyNM` floor when no traditional floor is declared. `abi3t_python_floor` separately records the lowest explicit `abi3t` floor. Bare features leave their floors unknown; these fields do not establish the effective build ABI.
 - Build backend (maturin / setuptools-rust [pyproject] / setuptools-rust [setup.py])
-- Whether free-threading is targeted. PyO3 detects a free-threaded interpreter automatically (the `Py_GIL_DISABLED` cfg) — there is no Cargo feature to detect. Infer intent from softer signals: `#[pymodule(gil_used = ...)]` / `m.gil_used(...)` declarations, maturin/CI configuration building against `python3.13t`/`3.14t`, and maintainer-stated intent. An `abi3`/`abi3-pyNM` feature is **not** an FT signal — abi3 is silently ignored under a free-threaded build.
+- Whether free-threading is targeted. Infer intent from `gil_used` declarations, free-threaded CI interpreters, and explicit `abi3t`/`abi3t-pyNM` features. Traditional `abi3` alone is not an FT signal and does not cover free-threaded builds, including Python 3.15+. PyO3 0.29+ supports the separate `abi3t` ABI for Python 3.15+; older free-threaded interpreters still require version-specific wheels. These signals do not prove thread safety or the final wheel ABI.
 - All `.rs` source files in the crate, with classification (entry-point module vs supporting modules)
 - Whether the crate has accompanying Python source (`python/` or similar — relevant for parity-checker)
 
@@ -512,6 +512,7 @@ All scripts emit JSON with a common envelope:
     "pyo3_version": "0.22.5",
     "pyo3_features": ["extension-module", "abi3-py310"],
     "python_floor": "3.10",
+    "abi3t_python_floor": null,
     "build_backend": "maturin",
     "free_threading_target": false,
     "source_files": ["src/lib.rs", "src/util.rs", ...],

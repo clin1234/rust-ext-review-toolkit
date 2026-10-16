@@ -130,6 +130,14 @@ class TestRefcountManipulation(unittest.TestCase):
 
 
 class TestPrivateCapi(unittest.TestCase):
+    def test_private_symbol_fix_under_abi3t(self):
+        for features in (["abi3t"], ["abi3t-py315"], ["abi3", "abi3t"]):
+            with self.subTest(features=features):
+                findings = findings_of(_PRIVATE_CAPI, pyo3_features=features)
+                self.assertEqual(len(findings), 1)
+                self.assertEqual(findings[0]["type"], "unsafe_private_capi")
+                self.assertEqual(findings[0]["classification"], "FIX")
+
     def test_private_symbol_consider_without_abi3(self):
         findings = findings_of(_PRIVATE_CAPI)
         self.assertEqual(len(findings), 1)

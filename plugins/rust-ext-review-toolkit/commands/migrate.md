@@ -57,8 +57,11 @@ Produce an actionable, phased migration checklist for a Rust/PyO3 extension. **T
 - [ ] Build and test against a free-threaded interpreter (`python3.13t` / `python3.14t`, `python3.15t`)
 - [ ] For a full GIL-discipline audit, run `/explore <scope> gil`
 
-### Phase 5: abi3 floor (optional)
-- [ ] Current floor: [abi3-pyN or none]. Note: `abi3` is silently ignored under a free-threaded build.
+### Phase 5: Stable ABI targets and floors (optional)
+- [ ] Record traditional `abi3-pyN` and `abi3t-pyN` floors separately (`abi3t_python_floor`), or "host-dependent" for bare features. A floor is not the actual build interpreter version.
+- [ ] For Python 3.15+, consider `abi3t` / `abi3t-py315` with PyO3 0.29+ and compatible packaging tools. Traditional `abi3` alone still does not cover free-threaded builds.
+- [ ] If supporting older Python versions, review the dual `abi3` + `abi3t` build matrix. Keep version-specific wheels for 3.13t/3.14t; bare `abi3t` is not a stable-ABI target on those interpreters.
+- [ ] Verify build configuration, wheel tags, and tests on both GIL-enabled and free-threaded Python 3.15+. ABI compatibility does not establish thread safety.
 - [ ] If raising the floor unlocks newer C-API, list what (version-compat / agent notes)
 ```
 

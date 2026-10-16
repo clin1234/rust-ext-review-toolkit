@@ -330,6 +330,7 @@ def analyze(target: str, *, max_files: int = 0) -> dict:
     discovery = discover(target)
     project_root = Path(discovery["project_root"])
     files = discover_rust_files(Path(discovery["scan_root"]), max_files=max_files)
+    # Both abi3 and abi3t restrict private C-API use.
     abi3 = any(
         str(feat).startswith("abi3") for feat in discovery.get("pyo3_features", [])
     )

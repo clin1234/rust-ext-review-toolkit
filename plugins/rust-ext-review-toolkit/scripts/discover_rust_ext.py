@@ -194,13 +194,14 @@ def _find_shim_cdylib_sibling(root: Path, crate_name: str) -> Path | None:
     return None
 
 
-def _python_floor(features: list[str]) -> str | None:
-    """Derive the minimum Python version from an `abi3-pyNM` feature."""
+def _python_floor(features: list[str], abi: str = "abi3") -> str | None:
+    """Return the lowest declared version floor for one stable ABI flavor."""
+    floors: list[int] = []
     for feat in features:
-        m = re.fullmatch(r"abi3-py3(\d+)", str(feat))
+        m = re.fullmatch(rf"{abi}-py3(\d+)", str(feat))
         if m:
-            return f"3.{m.group(1)}"
-    return None
+            floors.append(int(m.group(1)))
+    return f"3.{min(floors)}" if floors else None
 
 
 def _find_pymodule(rs_files: list[Path]) -> tuple[str | None, Path | None]:
@@ -235,9 +236,9 @@ def _detect_build_backend(root: Path) -> str:
 def _free_threading(root: Path, rs_files: list[Path]) -> tuple[bool, list[str]]:
     """Infer free-threading intent from soft signals.
 
-    Free-threading is not feature-gated in PyO3, so there is no Cargo
-    feature to read. We look for an explicit `gil_used` module declaration
-    and for CI configured against a free-threaded interpreter.
+    Look for an explicit `gil_used` module declaration and CI configured
+    against a free-threaded interpreter. Discovery also records `abi3t`
+    features as intent, not proof of thread safety or the effective build ABI.
     """
     signals: list[str] = []
     for path in rs_files:
@@ -340,6 +341,11 @@ def discover(target: str) -> dict:
         version_source = "Cargo.toml" if toml_version else None
     features = cargo["pyo3_features"] if cargo else []
     ft_target, ft_signals = _free_threading(root, rs_files)
+    if any(f == "abi3t" or f.startswith("abi3t-py3") for f in features):
+        ft_target = True
+        ft_signals.append("abi3t stable ABI requested in pyo3 features")
+    abi3_floor = _python_floor(features)
+    abi3t_floor = _python_floor(features, "abi3t")
 
     if has_pyo3_dep and pyo3_version is None:
         notes.append(
@@ -360,7 +366,8 @@ def discover(target: str) -> dict:
         "pyo3_version": pyo3_version,
         "pyo3_version_source": version_source,
         "pyo3_features": features,
-        "python_floor": _python_floor(features),
+        "python_floor": abi3_floor or abi3t_floor,
+        "abi3t_python_floor": abi3t_floor,
         "build_backend": backend,
         "crate_types": cargo["crate_types"] if cargo else [],
         "free_threading_target": ft_target,

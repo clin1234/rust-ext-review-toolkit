@@ -3,8 +3,10 @@
   "_comment": "PyO3 idiom reference, consumed by the rust-codegen-mapper preflight agent. `features` is a glossary of common Cargo features; `idioms` are normal PyO3 code shapes; `acceptable_noise` lists generic patterns downstream agents should treat as ACCEPTABLE rather than flag.",
   "features": {
     "extension-module": "Required for a Python extension: tells PyO3 not to link libpython (the interpreter provides the symbols at load time).",
-    "abi3": "Build against the limited API / stable ABI so one wheel works across Python versions. Silently ignored under a free-threaded build.",
+    "abi3": "Request the traditional stable ABI for GIL-enabled CPython. Alone, this does not provide stable-ABI wheels for free-threaded Python, including 3.15+.",
     "abi3-py3N": "abi3 with a minimum Python 3.N floor (e.g. abi3-py310).",
+    "abi3t": "PyO3 0.29+ support for Python 3.15+'s stable ABI for free threading (PEP 803), usable on both interpreter builds. Bare abi3t has no fixed floor; before Python 3.15 it falls back to a version-specific ABI unless abi3 also applies. Verify the effective build and wheel tags.",
+    "abi3t-py3N": "Explicit abi3t floor, starting with abi3t-py315. May coexist with an older abi3 floor for separate builds. Discovery reports abi3t_python_floor separately; neither feature selection nor ABI compatibility proves thread safety.",
     "multiple-pymethods": "Allow more than one #[pymethods] block per #[pyclass]; pulls in the `inventory` crate.",
     "experimental-async": "Enables `async fn` in #[pyfunction] / #[pymethods] (unstable).",
     "experimental-inspect": "Enables runtime type-introspection support (unstable).",
